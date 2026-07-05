@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { v4 as uuid } from "uuid";
-import { eq, like, and, or, desc } from "drizzle-orm";
+import { eq, like, and, or, desc, inArray } from "drizzle-orm";
 import { getDb } from "../db";
 import { memos, memoLabels, labels } from "../db/schema";
 
@@ -43,10 +43,11 @@ route.get("/", async (c) => {
       .orderBy(desc(memos.isPinned), desc(memos.updatedAt))
       .all();
   } else {
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
     memoRows = await db
       .select()
       .from(memos)
-      .where(and(...conditions))
+      .where(whereClause)
       .orderBy(desc(memos.isPinned), desc(memos.updatedAt))
       .all();
   }
@@ -63,13 +64,14 @@ route.get("/", async (c) => {
           })
           .from(memoLabels)
           .innerJoin(labels, eq(memoLabels.labelId, labels.id))
+          .where(inArray(memoLabels.memoId, memoIds))
           .all()
       : [];
 
   const labelMap = new Map<string, { id: string; name: string }[]>();
   for (const ml of allMemoLabels) {
     if (!labelMap.has(ml.memoId)) labelMap.set(ml.memoId, []);
-    labelMap.get(ml.memoId)!.push({ id: ml.labelId, name: ml.labelName });
+    labelMap.get(ml.memoId)?.push({ id: ml.labelId, name: ml.labelName });
   }
 
   const result = memoRows.map((m) => ({

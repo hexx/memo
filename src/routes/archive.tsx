@@ -19,11 +19,13 @@ function ArchivePage() {
   const unarchiveMutation = useMutation({
     mutationFn: toggleArchive,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["memos"] }),
+    onError: (err) => alert(err instanceof Error ? err.message : "操作に失敗しました"),
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteMemo,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["memos"] }),
+    onError: (err) => alert(err instanceof Error ? err.message : "削除に失敗しました"),
   });
 
   if (isLoading) return <p className="text-muted-foreground">読み込み中...</p>;
@@ -81,8 +83,9 @@ function ArchiveMemoCard({
           <Undo2 className="h-4 w-4 mr-1" />
           戻す
         </Button>
-        <Button variant="destructive" size="sm" onClick={onDelete}>
-          <Trash2 className="h-4 w-4" />
+        <Button variant="destructive" size="sm" onClick={onDelete} aria-label="メモを完全に削除">
+          <Trash2 className="h-4 w-4 mr-1" />
+          削除
         </Button>
       </div>
     </div>

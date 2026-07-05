@@ -4,10 +4,17 @@ async function request<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    ...options,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: { "Content-Type": "application/json", ...options?.headers },
+    });
+  } catch (err) {
+    throw new Error(
+      `Network error: ${err instanceof Error ? err.message : "Request failed"}`
+    );
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: "Request failed" }));
     throw new Error(err.error || `HTTP ${res.status}`);

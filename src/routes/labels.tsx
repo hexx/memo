@@ -32,10 +32,11 @@ function LabelsPage() {
   const deleteMutation = useMutation({
     mutationFn: deleteLabel,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["labels"] }),
+    onError: (err) => alert(err instanceof Error ? err.message : "削除に失敗しました"),
   });
 
   const handleCreate = () => {
-    if (!newName.trim()) return;
+    if (!newName.trim() || createMutation.isPending) return;
     createMutation.mutate(newName.trim());
   };
 

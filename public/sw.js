@@ -19,14 +19,16 @@ self.addEventListener("fetch", (event) => {
   // 静的アセットはキャッシュファースト
   event.respondWith(
     caches.match(request).then((cached) => {
-      return (
-        cached ||
-        fetch(request).then((response) => {
+      if (cached) return cached;
+      return fetch(request)
+        .then((response) => {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
           return response;
         })
-      );
+        .catch(() => {
+          return new Response("Offline", { status: 503 });
+        });
     })
   );
 });

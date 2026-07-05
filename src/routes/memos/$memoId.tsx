@@ -15,7 +15,7 @@ function MemoEditPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { data: memo, isLoading } = useQuery({
+  const { data: memo, isLoading, error } = useQuery({
     queryKey: ["memo", memoId],
     queryFn: () => getMemo(memoId),
   });
@@ -27,6 +27,7 @@ function MemoEditPage() {
       queryClient.invalidateQueries({ queryKey: ["memos"] });
       queryClient.invalidateQueries({ queryKey: ["memo", memoId] });
     },
+    onError: (err) => alert(err instanceof Error ? err.message : "保存に失敗しました"),
   });
 
   const deleteMutation = useMutation({
@@ -35,9 +36,11 @@ function MemoEditPage() {
       queryClient.invalidateQueries({ queryKey: ["memos"] });
       navigate({ to: "/" });
     },
+    onError: (err) => alert(err instanceof Error ? err.message : "削除に失敗しました"),
   });
 
   if (isLoading) return <p className="text-muted-foreground">読み込み中...</p>;
+  if (error) return <p className="text-destructive">エラー: {(error as Error).message}</p>;
   if (!memo) return <p className="text-muted-foreground">メモが見つかりません。</p>;
 
   return (

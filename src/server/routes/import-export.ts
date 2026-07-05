@@ -140,7 +140,7 @@ route.get("/memos/:id/export", async (c) => {
   // #+FILETAGS:
   if (labelRows.length > 0) {
     const tagLine = `#+FILETAGS: ${labelRows.map((l) => `:${l.name}`).join("")}`;
-    if (exportText.includes("#+FILETAGS:")) {
+    if (/^#\+FILETAGS:/m.test(exportText)) {
       exportText = exportText.replace(
         /^#\+FILETAGS:.*$/m,
         tagLine

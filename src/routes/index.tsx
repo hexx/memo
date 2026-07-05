@@ -57,16 +57,19 @@ function HomePage() {
   const deleteMutation = useMutation({
     mutationFn: deleteMemo,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["memos"] }),
+    onError: (err) => alert(err instanceof Error ? err.message : "削除に失敗しました"),
   });
 
   const pinMutation = useMutation({
     mutationFn: togglePin,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["memos"] }),
+    onError: (err) => alert(err instanceof Error ? err.message : "操作に失敗しました"),
   });
 
   const archiveMutation = useMutation({
     mutationFn: toggleArchive,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["memos"] }),
+    onError: (err) => alert(err instanceof Error ? err.message : "操作に失敗しました"),
   });
 
   const importMutation = useMutation({
@@ -76,6 +79,7 @@ function HomePage() {
       setImportOpen(false);
       setImportText("");
     },
+    onError: (err) => alert(err instanceof Error ? err.message : "インポートに失敗しました"),
   });
 
   const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
