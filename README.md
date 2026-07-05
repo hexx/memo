@@ -112,15 +112,20 @@ src/
 # 依存パッケージのインストール
 npm install
 
+# マイグレーションファイルの生成（初回 or スキーマ変更時のみ）
+npm run db:generate
+
+# ローカル D1 にマイグレーションを適用
+npm run db:migrate:local
+
 # 開発サーバーの起動
 npm run dev
-
-# ローカル DB マイグレーション
-npm run db:migrate:local
 
 # テストの実行
 npm test
 ```
+
+> **Note**: 新しくクローンしたら `npm install` → `npm run db:generate` → `npm run db:migrate:local` の順で実行してください。`drizzle.config.ts` の `out: "./migrations"` にSQLファイルが生成され、ローカルの D1 インスタンスにテーブルが作成されます。
 
 ## デプロイ
 
