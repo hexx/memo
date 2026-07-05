@@ -301,7 +301,7 @@ function MemoCard({
       </div>
 
       <p className="text-xs text-muted-foreground line-clamp-4 whitespace-pre-wrap mb-3">
-        {memo.body.split("\n").slice(1).join("\n").substring(0, 200)}
+        {memo.body.substring(0, 200)}
       </p>
 
       {memo.labels.length > 0 && (
