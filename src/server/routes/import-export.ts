@@ -11,7 +11,7 @@ const route = new Hono<{ Bindings: Bindings }>();
 
 // POST /api/import — orgテキストをインポート
 route.post("/import", async (c) => {
-  const db = getDb({ DB: c.env.DB });
+  const db = getDb(c.env);
   const contentType = c.req.header("Content-Type") || "";
 
   let orgText: string;
@@ -114,7 +114,7 @@ route.post("/import", async (c) => {
 
 // GET /api/memos/:id/export — 単一メモを .org としてエクスポート
 route.get("/memos/:id/export", async (c) => {
-  const db = getDb({ DB: c.env.DB });
+  const db = getDb(c.env);
   const id = c.req.param("id");
 
   const memo = await db.select().from(memos).where(eq(memos.id, id)).get();
