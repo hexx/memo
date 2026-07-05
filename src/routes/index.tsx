@@ -11,7 +11,6 @@ import {
   importOrgFile,
   getExportUrl,
   type Memo,
-  type Label,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

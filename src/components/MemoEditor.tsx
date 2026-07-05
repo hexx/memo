@@ -1,11 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getLabels, createLabel, createMemo, type Memo, type Label } from "@/lib/api";
+import { getLabels, createLabel, createMemo, type Memo } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { X } from "lucide-react";
 
 interface MemoEditorProps {
   initialMemo?: Memo;
