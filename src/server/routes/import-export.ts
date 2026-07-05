@@ -68,21 +68,27 @@ route.post("/import", async (c) => {
     },
   });
 
-  // ラベルを find-or-create
+  // ラベルを find-or-create（競合回避のため onConflictDoNothing 使用）
   const labelIds: string[] = [];
   for (const tagName of tagSet) {
-    let existing = await db
+    // 既存ラベルを確認
+    let label = await db
       .select()
       .from(labels)
       .where(eq(labels.name, tagName))
       .get();
-    if (!existing) {
+    if (!label) {
+      // なければ新規作成（競合時は何もしない）
       const id = uuid();
       await db.insert(labels).values({ id, name: tagName });
-      labelIds.push(id);
-    } else {
-      labelIds.push(existing.id);
+      // 競合していた場合に備えて再取得
+      label = await db
+        .select()
+        .from(labels)
+        .where(eq(labels.name, tagName))
+        .get();
     }
+    if (label) labelIds.push(label.id);
   }
 
   // メモ作成
@@ -124,8 +130,8 @@ route.get("/memos/:id/export", async (c) => {
 
   let exportText = memo.body;
 
-  // #+TITLE: があれば置換、なければ先頭に追加
-  if (exportText.startsWith("#+TITLE:")) {
+  // #+TITLE: が本文中にあれば置換、なければ先頭に追加
+  if (/^#\+TITLE:/m.test(exportText)) {
     exportText = exportText.replace(/^#\+TITLE:.*$/m, `#+TITLE: ${memo.title}`);
   } else {
     exportText = `#+TITLE: ${memo.title}\n${exportText}`;
@@ -153,7 +159,7 @@ route.get("/memos/:id/export", async (c) => {
   c.header("Content-Type", "text/plain; charset=utf-8");
   c.header(
     "Content-Disposition",
-    `attachment; filename="${encodeURIComponent(memo.title)}.org"`
+    `attachment; filename="${memo.title}.org"; filename*=UTF-8''${encodeURIComponent(memo.title)}.org`
   );
   return c.text(exportText);
 });
