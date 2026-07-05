@@ -10,14 +10,14 @@ const route = new Hono<{ Bindings: Bindings }>();
 
 // GET /api/labels — ラベル一覧
 route.get("/", async (c) => {
-  const db = getDb({ DB: c.env.DB });
+  const db = getDb(c.env);
   const allLabels = await db.select().from(labels).all();
   return c.json(allLabels);
 });
 
 // POST /api/labels — ラベル作成
 route.post("/", async (c) => {
-  const db = getDb({ DB: c.env.DB });
+  const db = getDb(c.env);
   const { name } = await c.req.json<{ name: string }>();
   const trimmedName = name?.trim();
   if (!trimmedName) {
@@ -44,7 +44,7 @@ route.post("/", async (c) => {
 
 // DELETE /api/labels/:id — ラベル削除
 route.delete("/:id", async (c) => {
-  const db = getDb({ DB: c.env.DB });
+  const db = getDb(c.env);
   const id = c.req.param("id");
 
   // カスケード削除に任せる（スキーマで onDelete: "cascade" 定義済み）

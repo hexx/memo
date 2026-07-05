@@ -10,7 +10,7 @@ const route = new Hono<{ Bindings: Bindings }>();
 
 // GET /api/memos — メモ一覧（検索・ラベルフィルター・アーカイブ含む）
 route.get("/", async (c) => {
-  const db = getDb({ DB: c.env.DB });
+  const db = getDb(c.env);
   const query = c.req.query("q") || "";
   const labelId = c.req.query("label");
   const includeArchived = c.req.query("archived") === "1";
@@ -84,7 +84,7 @@ route.get("/", async (c) => {
 
 // GET /api/memos/:id — メモ詳細
 route.get("/:id", async (c) => {
-  const db = getDb({ DB: c.env.DB });
+  const db = getDb(c.env);
   const id = c.req.param("id");
 
   const memo = await db.select().from(memos).where(eq(memos.id, id)).get();
@@ -105,7 +105,7 @@ route.get("/:id", async (c) => {
 
 // POST /api/memos — メモ作成
 route.post("/", async (c) => {
-  const db = getDb({ DB: c.env.DB });
+  const db = getDb(c.env);
   const body = await c.req.json<{
     title: string;
     body: string;
@@ -141,7 +141,7 @@ route.post("/", async (c) => {
 
 // PUT /api/memos/:id — メモ更新
 route.put("/:id", async (c) => {
-  const db = getDb({ DB: c.env.DB });
+  const db = getDb(c.env);
   const id = c.req.param("id");
   const body = await c.req.json<{
     title: string;
@@ -187,7 +187,7 @@ route.put("/:id", async (c) => {
 
 // DELETE /api/memos/:id — メモ削除
 route.delete("/:id", async (c) => {
-  const db = getDb({ DB: c.env.DB });
+  const db = getDb(c.env);
   const id = c.req.param("id");
 
   const result = await db.delete(memos).where(eq(memos.id, id));
@@ -198,7 +198,7 @@ route.delete("/:id", async (c) => {
 
 // PATCH /api/memos/:id/pin — ピン留めトグル
 route.patch("/:id/pin", async (c) => {
-  const db = getDb({ DB: c.env.DB });
+  const db = getDb(c.env);
   const id = c.req.param("id");
 
   const memo = await db.select().from(memos).where(eq(memos.id, id)).get();
@@ -214,7 +214,7 @@ route.patch("/:id/pin", async (c) => {
 
 // PATCH /api/memos/:id/archive — アーカイブトグル
 route.patch("/:id/archive", async (c) => {
-  const db = getDb({ DB: c.env.DB });
+  const db = getDb(c.env);
   const id = c.req.param("id");
 
   const memo = await db.select().from(memos).where(eq(memos.id, id)).get();
