@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -n api,web -c blue,green \"wrangler dev\" \"vite\"",
+    "dev:web": "vite",
+    "dev:api": "wrangler dev",
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "wrangler deploy",
@@ -43,6 +45,7 @@
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.0",
     "better-sqlite3": "^12.11.1",
+    "concurrently": "^10.0.3",
     "drizzle-kit": "^0.28.0",
     "oxlint": "^1.72.0",
     "postcss": "^8.4.0",
