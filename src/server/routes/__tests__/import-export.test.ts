@@ -50,6 +50,16 @@ describe("import-export", () => {
       expect(data.labelCount).toBe(1);
     });
 
+    it("falls back to heading text without the TODO keyword", async () => {
+      const res = await req(createApp(), "POST", "/import", {
+        text: "* TODO Ship the release :work:",
+      });
+      const data = await res.json();
+      // AST では TODO キーワードが状態として分離されるためタイトルから除外される
+      expect(data.title).toBe("Ship the release");
+      expect(data.labelCount).toBe(1);
+    });
+
     it("falls back to first non-metadata line as title", async () => {
       const res = await req(createApp(), "POST", "/import", {
         text: "#+AUTHOR: test\n\nJust some text",
