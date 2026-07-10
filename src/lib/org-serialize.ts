@@ -1,4 +1,26 @@
 import type { JSONContent } from "@tiptap/core";
+import {
+  parseInline,
+  stringify,
+  createRoot,
+  createParagraph,
+  createPlainText,
+  createBold,
+  createItalic,
+  createLink,
+  createList,
+  createHorizontalRule,
+  createHardBreak,
+} from "org-toolkit";
+import type {
+  InlineNode,
+  LinkNode,
+  Root as OrgRoot,
+  List as OrgList,
+  ListItem as OrgListItem,
+  Block as OrgBlock,
+  SourceRange,
+} from "org-toolkit";
 
 /**
  * org-mode テキストと TipTap(ProseMirror) のドキュメントモデルを相互変換する。
@@ -12,20 +34,28 @@ import type { JSONContent } from "@tiptap/core";
  * 見出し、順序なし/ありリスト、太字、イタリック、取り消し線、コードブロック、リンク。
  * （下線(underline) は StarterKit が提供するため編集可能だが、org では `_text_` にマップする）
  *
- * 注意: org-toolkit は index エントリが browser/Worker-safe になり
- * （file-system 系は org-toolkit/file-system subpath に分離）、このモジュールからも
- * import 可能になった。しかし org-toolkit の AST モデルは以下の制約を持つため、
- * TipTap とのラウンドトリップには自前のパーサー/シリアライザを維持する:
- * - リストの入れ子を表現できない（ListItem.children は InlineNode のみ）
- * - 水平線(-----) とハード改行(行末 \) を扱わない
- * - インラインのみをパースする公開 API（parseInline）がない
- * - stringify/builders が装飾内の区切り文字をエスケープしない
- * メタデータ抽出などサーバー側では org-toolkit を活用（import-export.ts）。
+ * org-toolkit の最新版は以下をネイティブに提供するようになったため、自前の
+ * インライントークナイザやエスケープ処理は廃止し、org-toolkit の AST を活用する:
+ * - `parseInline`: インラインのみをパースする公開 API
+ * - `stringify`: 装飾内の区切り文字をエスケープ（round-trip 安全）
+ * - ネストリスト・水平線(-----)・ハード改行(行末 \) の表現
+ *
+ * 維持するのは TipTap 固有の HTML 規約のみの薄いマッピング層:
+ * - 見出しは `*` の直後に空白が必要（org-mode と同様に `*bold` は見出しにならない）
+ * - `#+TITLE:` などのディレクティブ行は編集モデルに持ち込まない
+ * - 取り消し線は `<s>`、水平線は `<hr/>`、ハード改行は `<br/>` にマップ
+ * - 引用ブロックは `<blockquote><p>...</p></blockquote>` にマップ
  */
 
 // ---------------------------------------------------------------------------
-// インライン変換（org 記法 → HTML）
+// インライン変換（org AST → HTML）
 // ---------------------------------------------------------------------------
+
+/** org-toolkit が生成する AST 上の zero-length 位置（合成ノード用）。 */
+const SYNTHETIC_POSITION: SourceRange = {
+  start: { index: 0, line: 1, column: 1 },
+  end: { index: 0, line: 1, column: 1 },
+};
 
 function escapeHtml(s: string): string {
   return s
@@ -36,94 +66,53 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function parseInline(text: string): string {
-  const wrap = (delim: string, inner: string): string => {
-    switch (delim) {
-      case "*":
-        return `<strong>${inner}</strong>`;
-      case "/":
-        return `<em>${inner}</em>`;
-      case "+":
-        return `<s>${inner}</s>`;
-      case "_":
-        return `<u>${inner}</u>`;
-      case "=":
-      case "~":
-        return `<code>${inner}</code>`;
-      default:
-        return inner;
-    }
-  };
+/** org-toolkit のインライン AST を TipTap が読める HTML に変換する。 */
+function renderInlineNodes(nodes: ReadonlyArray<InlineNode>): string {
+  return nodes.map(renderInlineNode).join("");
+}
 
-  let out = "";
-  let i = 0;
-  const n = text.length;
-  while (i < n) {
-    const c = text[i];
-
-    // リンク: [[url][desc]] または [[url]]
-    if (c === "[" && text[i + 1] === "[") {
-      const end = text.indexOf("]]", i + 2);
-      if (end !== -1) {
-        const inner = text.slice(i + 2, end);
-        const m = inner.match(/^([^\]]+)\]\[([^\]]*)$/);
-        if (m) {
-          out += `<a href="${escapeHtml(m[1])}">${parseInline(m[2])}</a>`;
-          i = end + 2;
-          continue;
-        }
-        // 説明なしリンク [[url]]
-        const bare = inner.match(/^([^\]]+)$/);
-        if (bare) {
-          out += `<a href="${escapeHtml(bare[1])}">${escapeHtml(bare[1])}</a>`;
-          i = end + 2;
-          continue;
-        }
-      }
-    }
-
-    // インライン装飾: * / + _ = ~ （再帰で入れ子も許容。= ~ は verbatim のため内部を解析しない）
-    if (c === "*" || c === "/" || c === "+" || c === "_" || c === "=" || c === "~") {
-      const close = text.indexOf(c, i + 1);
-      if (close !== -1) {
-        const inner = text.slice(i + 1, close);
-        if (inner.length > 0 && inner.indexOf(c) === -1) {
-          const innerHtml =
-            c === "=" || c === "~" ? escapeHtml(inner) : parseInline(inner);
-          out += wrap(c, innerHtml);
-          i = close + 1;
-          continue;
-        }
-      }
-    }
-
-    // バックスラッシュは org のエスケープ文字。次の1文字をリテラルとして扱う
-    if (c === "\\") {
-      const next = text[i + 1];
-      if (next !== undefined) {
-        out += escapeHtml(next);
-        i += 2;
-        continue;
-      }
-      out += "\\\\";
-      i++;
-      continue;
-    }
-
-    out += escapeHtml(c);
-    i++;
+function renderInlineNode(node: InlineNode): string {
+  switch (node.type) {
+    case "text":
+      return escapeHtml(node.value);
+    case "bold":
+      return `<strong>${renderInlineNodes(node.children)}</strong>`;
+    case "italic":
+      return `<em>${renderInlineNodes(node.children)}</em>`;
+    case "underline":
+      return `<u>${renderInlineNodes(node.children)}</u>`;
+    case "strike-through":
+      return `<s>${renderInlineNodes(node.children)}</s>`;
+    case "code":
+    case "verbatim":
+      return `<code>${escapeHtml(node.value)}</code>`;
+    case "link":
+      return renderLink(node);
+    case "hard-break":
+      return "<br/>";
+    case "footnote-reference":
+      return `[fn:${escapeHtml(node.label)}]`;
+    case "timestamp":
+      // タイムスタンプは TipTap の編集モデルに保持しない
+      return "";
+    default:
+      return "";
   }
-  return out;
+}
+
+function renderLink(node: LinkNode): string {
+  const href = escapeHtml(node.url);
+  const inner = node.description
+    ? renderInlineNodes(node.description)
+    : escapeHtml(node.url);
+  return `<a href="${href}">${inner}</a>`;
 }
 
 // ---------------------------------------------------------------------------
 // org テキスト → HTML（TipTap の setContent 用）
 // ---------------------------------------------------------------------------
 
-/**
- * 既存の org テキストを TipTap が読み込める HTML に変換する。
- * パースできない特殊な構文は段落テキストとして取り込む（フォールバック）。
- */
+/** 入れ子リストを再帰的に <ul>/<ol> へ変換する。 */
 function buildList(
   items: { indent: number; html: string }[],
   kind: "unordered" | "ordered"
@@ -161,8 +150,8 @@ function parseBlocks(lines: string[]): string[] {
       // 行末の \ は org のハード改行 → <br/>
       const parts = paragraphBuf.map((l) =>
         l.endsWith("\\")
-          ? `${parseInline(l.slice(0, -1))}<br/>`
-          : parseInline(l)
+          ? `${renderInlineNodes(parseInline(l.slice(0, -1)))}<br/>`
+          : renderInlineNodes(parseInline(l))
       );
       blocks.push(`<p>${parts.join(" ")}</p>`);
       paragraphBuf = [];
@@ -206,12 +195,12 @@ function parseBlocks(lines: string[]): string[] {
       continue;
     }
 
-    // 見出し: * ~ ******
+    // 見出し: * ~ ******（* の直後は空白必須）
     const heading = line.match(/^(\*+)\s+(.*)$/);
     if (heading) {
       flushParagraph();
       const level = Math.min(heading[1].length, 6);
-      blocks.push(`<h${level}>${parseInline(heading[2])}</h${level}>`);
+      blocks.push(`<h${level}>${renderInlineNodes(parseInline(heading[2]))}</h${level}>`);
       i++;
       continue;
     }
@@ -230,7 +219,7 @@ function parseBlocks(lines: string[]): string[] {
       const items: { indent: number; html: string }[] = [];
       while (i < lines.length && /^\s*[-+]\s+/.test(lines[i])) {
         const m = lines[i].match(/^(\s*)[-+]\s+(.*)$/);
-        if (m) items.push({ indent: m[1].length, html: parseInline(m[2]) });
+        if (m) items.push({ indent: m[1].length, html: renderInlineNodes(parseInline(m[2])) });
         i++;
       }
       blocks.push(buildList(items, "unordered"));
@@ -243,7 +232,7 @@ function parseBlocks(lines: string[]): string[] {
       const items: { indent: number; html: string }[] = [];
       while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
         const m = lines[i].match(/^(\s*)\d+\.\s+(.*)$/);
-        if (m) items.push({ indent: m[1].length, html: parseInline(m[2]) });
+        if (m) items.push({ indent: m[1].length, html: renderInlineNodes(parseInline(m[2])) });
         i++;
       }
       blocks.push(buildList(items, "ordered"));
@@ -288,109 +277,153 @@ export function orgToHtml(org: string): string {
 
 type Mark = { type: string; attrs?: Record<string, unknown> };
 
-function applyMarks(text: string, marks: Mark[]): string {
-  // コード(=...=) は他の装飾を内包できないため最優先。内部の = もエスケープ
-  if (marks.some((m) => m.type === "code"))
-    return `=${text.replace(/=/g, "\\=")}=`;
-  let out = text;
-  // 外側から順にラップする。内側の区切り文字をエスケープしてラウンドトリップを保つ
-  if (marks.some((m) => m.type === "underline"))
-    out = `_${out.replace(/_/g, "\\_")}_`;
-  if (marks.some((m) => m.type === "strike"))
-    out = `+${out.replace(/\+/g, "\\+")}+`;
-  if (marks.some((m) => m.type === "italic"))
-    out = `/${out.replace(/\//g, "\\/")}/`;
-  if (marks.some((m) => m.type === "bold"))
-    out = `*${out.replace(/\*/g, "\\*")}*`;
-  // リンクは TipTap では text のマーク。説明内の `]` をエスケープ
-  if (marks.some((m) => m.type === "link")) {
-    const linkMark = marks.find((m) => m.type === "link");
-    const url = String(linkMark?.attrs?.href ?? "");
-    const desc = out.replace(/\]/g, "\\]");
-    out = `[[${url}][${desc}]]`;
+/** TipTap のインラインコンテンツを org のインライン AST に変換する。 */
+function inlineNodesFromTiptap(content?: JSONContent[]): InlineNode[] {
+  if (!content) return [];
+  const out: InlineNode[] = [];
+  for (const node of content) out.push(...inlineNodeFromTiptap(node));
+  return out;
+}
+
+function inlineNodeFromTiptap(node: JSONContent): InlineNode[] {
+  if (node.type === "text") return [textToOrgInline(node)];
+  if (node.type === "hardBreak") return [createHardBreak()];
+  // 未知のインラインノードは子要素をインラインとして抽出
+  if (node.content) return inlineNodesFromTiptap(node.content);
+  return [];
+}
+
+/**
+ * テキストノード（マーク付き）を org のインライン AST に変換する。
+ * マークは org の優先順位 code > underline > strike > italic > bold > link で
+ * ネストさせ、外側から順にラップする（既存の round-trip と同じ順序）。
+ */
+function textToOrgInline(node: JSONContent): InlineNode {
+  const text = node.text ?? "";
+  const marks = (node.marks ?? []) as Mark[];
+  const has = (t: string) => marks.some((m) => m.type === t);
+
+  // code(=...=) は他の装飾を内包できないため最優先
+  if (has("code")) {
+    return { type: "code", value: text, position: SYNTHETIC_POSITION };
+  }
+
+  let inner: InlineNode[] = [createPlainText(text)];
+  if (has("underline"))
+    inner = [{ type: "underline", children: inner, position: SYNTHETIC_POSITION }];
+  if (has("strike"))
+    inner = [{ type: "strike-through", children: inner, position: SYNTHETIC_POSITION }];
+  if (has("italic")) inner = [createItalic(inner)];
+  if (has("bold")) inner = [createBold(inner)];
+  if (has("link")) {
+    const url = String(marks.find((m) => m.type === "link")?.attrs?.href ?? "");
+    inner = [createLink(url, inner)];
+  }
+  return inner[0]!;
+}
+
+/** TipTap のブロックコンテンツを org のブロック AST に変換する。 */
+function blocksFromTiptap(content?: JSONContent[]): OrgRoot["children"] {
+  const out: OrgRoot["children"][number][] = [];
+  for (const node of content ?? []) {
+    const block = blockFromTiptap(node);
+    if (block) out.push(block);
   }
   return out;
 }
 
-function textNodeToOrg(node: JSONContent): string {
-  const text = node.text ?? "";
-  return applyMarks(text, (node.marks ?? []) as Mark[]);
-}
-
-function inlineNodesToOrg(nodes: JSONContent[] | undefined): string {
-  if (!nodes) return "";
-  return nodes.map(inlineToOrg).join("");
-}
-
-function inlineToOrg(node: JSONContent): string {
-  if (node.type === "text") return textNodeToOrg(node);
-  if (node.type === "hardBreak") return "\\\n";
-  // リンクは TipTap では text のマークとして表現されるため、
-  // text ノードの marks 経由で applyMarks 内で処理される
-  return inlineNodesToOrg(node.content);
-}
-
-function listItemToOrg(li: JSONContent, indent: string, marker: string): string {
-  const inner = (li.content ?? [])
-    .map((n) => {
-      if (n.type === "paragraph") return inlineNodesToOrg(n.content);
-      // 入れ子リストは1段深くインデント
-      const block = nodeToOrg(n, indent + "  ");
-      return block ?? "";
-    })
-    .filter((s) => s !== null)
-    .join("\n");
-  return `${indent}${marker} ${inner}`;
-}
-
-function nodeToOrg(node: JSONContent, indent = ""): string | null {
+function blockFromTiptap(
+  node: JSONContent
+): OrgRoot["children"][number] | null {
   switch (node.type) {
+    case "heading":
+      return {
+        type: "heading",
+        level: Math.min(Math.max(Number(node.attrs?.level ?? 1), 1), 6),
+        tags: [],
+        properties: {},
+        children: inlineNodesFromTiptap(node.content),
+        position: SYNTHETIC_POSITION,
+      };
     case "paragraph":
-      return inlineNodesToOrg(node.content);
-    case "heading": {
-      const level = Math.min(Math.max(Number(node.attrs?.level ?? 1), 1), 6);
-      const stars = "*".repeat(level);
-      return `${stars} ${inlineNodesToOrg(node.content)}`;
-    }
+      return createParagraph(inlineNodesFromTiptap(node.content));
     case "bulletList":
-      return (node.content ?? [])
-        .map((li) => listItemToOrg(li, indent, "-"))
-        .join("\n");
+      return buildListFromTiptap("unordered", node.content);
     case "orderedList":
-      // org は自動採番されるため全 item を "1." で出力
-      return (node.content ?? [])
-        .map((li) => listItemToOrg(li, indent, "1."))
-        .join("\n");
+      return buildListFromTiptap("ordered", node.content);
     case "codeBlock": {
-      const lang = node.attrs?.language ? ` ${String(node.attrs.language)}` : "";
-      const code = (node.content ?? []).map((n) => n.text ?? "").join("");
-      return `#+BEGIN_SRC${lang}\n${code}\n#+END_SRC`;
+      const code = (node.content ?? []).map((c) => c.text ?? "").join("");
+      const lang = node.attrs?.language ? String(node.attrs.language) : "";
+      const block: OrgBlock = {
+        type: "block",
+        blockName: "SRC",
+        parameters: lang,
+        content: `\n${code}\n`,
+        position: SYNTHETIC_POSITION,
+      };
+      return block;
     }
     case "blockquote": {
-      const inner = (node.content ?? [])
-        .map((n) => nodeToOrg(n))
-        .filter((x): x is string => x !== null)
-        .join("\n\n");
-      return `#+BEGIN_QUOTE\n${inner}\n#+END_QUOTE`;
+      const inner = stringify(createRoot({}, blocksFromTiptap(node.content)));
+      const block: OrgBlock = {
+        type: "block",
+        blockName: "QUOTE",
+        parameters: "",
+        content: `\n${inner}\n`,
+        position: SYNTHETIC_POSITION,
+      };
+      return block;
     }
     case "horizontalRule":
-      return "-----";
+      return createHorizontalRule();
     default:
-      // 未知のブロックはインラインとして抽出
-      return inlineNodesToOrg(node.content);
+      // 未知のブロックは段落として抽出
+      return createParagraph(inlineNodesFromTiptap(node.content));
   }
+}
+
+/** TipTap のリストアイテムを org の list-item AST に変換する。
+ * `kind` は所属するリストの種別で、marker の既定値（順序ありは `1.`、なしは `-`）を決める。
+ * 最終的な marker は createList でも正規化されるが、意図を明確にするためここで設定する。 */
+function listItemFromTiptap(
+  item: JSONContent,
+  kind: "unordered" | "ordered"
+): OrgListItem {
+  const para = (item.content ?? []).find((c) => c.type === "paragraph");
+  const nested = (item.content ?? []).filter(
+    (c) => c.type === "bulletList" || c.type === "orderedList"
+  );
+  const subList =
+    nested.length > 0
+      ? buildListFromTiptap(
+          nested[0]!.type === "orderedList" ? "ordered" : "unordered",
+          nested[0]!.content
+        )
+      : undefined;
+
+  return {
+    type: "list-item",
+    marker: kind === "ordered" ? "1." : "-",
+    checkbox: null,
+    children: inlineNodesFromTiptap(para?.content),
+    position: SYNTHETIC_POSITION,
+    ...(subList ? { subList } : {}),
+  };
+}
+
+/** TipTap のリスト（順序なし/あり）を org の list AST に変換する。 */
+function buildListFromTiptap(
+  kind: "unordered" | "ordered",
+  items?: JSONContent[]
+): OrgList {
+  return createList(kind, (items ?? []).map((item) => listItemFromTiptap(item, kind)));
 }
 
 /**
  * TipTap のドキュメント(JSONContent)を org テキストにシリアライズする。
+ * 装飾内の区切り文字エスケープは org-toolkit の stringify が担う。
  */
 export function docToOrg(doc: JSONContent): string {
-  const blocks: string[] = [];
-  for (const node of doc.content ?? []) {
-    const block = nodeToOrg(node);
-    if (block !== null) blocks.push(block);
-  }
-  // 空の段落は空文字として扱い、ブロック間は空行で区切る
-  const text = blocks.join("\n\n");
-  return text.replace(/\n{3,}/g, "\n\n").trimEnd();
+  const root = createRoot({}, blocksFromTiptap(doc.content));
+  return stringify(root);
 }
