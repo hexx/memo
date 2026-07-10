@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { v4 as uuid } from "uuid";
 import { eq } from "drizzle-orm";
-import { parse, walk, type Heading } from "org-toolkit";
+import { parse, findAllByType, getTextContent } from "org-toolkit";
 import { getDb } from "../db";
 import { memos, labels, memoLabels } from "../db/schema";
 
@@ -37,36 +37,24 @@ route.post("/import", async (c) => {
   // org-toolkit でパースしてメタデータ抽出
   const ast = parse(orgText);
 
-  // タイトル: TITLE メタデータ or 1行目
+  // タイトル: #+TITLE メタデータ → 先頭の見出し/段落のテキスト → "Untitled"
+  // AST では見出しのタグ・TODO キーワードが構造的に分離されているため、
+  // 自前のタグ除去は不要（getTextContent が本文のみを返す）
   let title = ast.metadata["TITLE"] || "";
   if (!title) {
-    const lines = orgText.split("\n");
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith("#+") && !trimmed.startsWith("*")) {
-        title = trimmed;
-        break;
-      }
-      if (trimmed.startsWith("* ")) {
-        title = trimmed.slice(2).trim();
-        // 見出しのタグを除去
-        const tagIdx = title.indexOf(" :");
-        if (tagIdx !== -1) title = title.slice(0, tagIdx);
-        break;
+    for (const child of ast.children) {
+      if (child.type === "heading" || child.type === "paragraph") {
+        title = getTextContent(child).split("\n")[0].trim();
+        if (title) break;
       }
     }
   }
   if (!title) title = "Untitled";
 
   // ラベル: 全見出しのタグを収集
-  const tagSet = new Set<string>();
-  walk(ast, {
-    heading(node: Heading) {
-      for (const tag of node.tags) {
-        tagSet.add(tag);
-      }
-    },
-  });
+  const tagSet = new Set(
+    findAllByType(ast, "heading").flatMap((heading) => heading.tags),
+  );
 
   // ラベルを find-or-create（競合回避のため onConflictDoNothing 使用）
   const labelIds: string[] = [];

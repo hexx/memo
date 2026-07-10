@@ -12,8 +12,15 @@ import type { JSONContent } from "@tiptap/core";
  * 見出し、順序なし/ありリスト、太字、イタリック、取り消し線、コードブロック、リンク。
  * （下線(underline) は StarterKit が提供するため編集可能だが、org では `_text_` にマップする）
  *
- * 注意: このモジュールはブラウザバンドルに含まれるため、Node 組み込みに依存する
- * org-toolkit の index エントリは使用せず、軽量な自前パーサーを採用している。
+ * 注意: org-toolkit は index エントリが browser/Worker-safe になり
+ * （file-system 系は org-toolkit/file-system subpath に分離）、このモジュールからも
+ * import 可能になった。しかし org-toolkit の AST モデルは以下の制約を持つため、
+ * TipTap とのラウンドトリップには自前のパーサー/シリアライザを維持する:
+ * - リストの入れ子を表現できない（ListItem.children は InlineNode のみ）
+ * - 水平線(-----) とハード改行(行末 \) を扱わない
+ * - インラインのみをパースする公開 API（parseInline）がない
+ * - stringify/builders が装飾内の区切り文字をエスケープしない
+ * メタデータ抽出などサーバー側では org-toolkit を活用（import-export.ts）。
  */
 
 // ---------------------------------------------------------------------------
