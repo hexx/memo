@@ -5,9 +5,9 @@ import { createTestDb, seedMemo } from "../../../../tests/helpers";
 import { setTestDb } from "../../db";
 
 const ENV = {
-  OPENCODE_GO_API_KEY: "test-key",
-  OPENCODE_GO_BASE_URL: "https://example.com/v1",
-  OPENCODE_GO_MODEL: "test-model",
+  AI_API_KEY: "test-key",
+  AI_BASE_URL: "https://example.com/v1",
+  AI_MODEL: "test-model",
 };
 
 let db: ReturnType<typeof createTestDb>["db"];
@@ -21,10 +21,20 @@ function createApp() {
 function mockFetchOnce(content: string) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ choices: [{ message: { content } }] }),
-    }) as Response)
+    vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          id: "chatcmpl-1",
+          object: "chat.completion",
+          created: 0,
+          model: "test-model",
+          choices: [
+            { index: 0, message: { role: "assistant", content }, finish_reason: "stop" },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    )
   );
 }
 

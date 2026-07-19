@@ -142,25 +142,25 @@ npm run deploy
 
 メモ作成・編集時に、タイトルを自分で入力する代わりに**本文の内容から AI で自動生成**できます。メモ編集画面の「AIで生成」ボタンを押すと、本文から短い日本語のタイトルが生成されます。また、`POST /memos` や `PUT /memos/:id` で `title` を空にした場合も、サーバー側で本文から自動生成します（手動入力された `title` がある場合はそちらを優先）。
 
-接続には OpenAI 互換のチャット API（OpenCode Go エンドポイント）を使用し、次の 3 つの環境変数（Cloudflare Workers のバインディング）から接続情報を取得します。
+接続には Vercel AI SDK（`ai` の `generateText` と `@ai-sdk/openai-compatible` の `createOpenAICompatible`）を使用し、OpenAI 互換の任意のエンドポイント（OpenCode Go 等）を呼び出します。次の 3 つの環境変数（Cloudflare Workers のバインディング）から接続情報を取得します。
 
 | 環境変数 | 説明 |
 |---|---|
-| `OPENCODE_GO_API_KEY` | API キー（Authorization: Bearer に使用）。**シークレット** |
-| `OPENCODE_GO_BASE_URL` | ベース URL（例: `https://opencode.ai/zen/go/v1`）。実際のエンドポイントは `<BASE_URL>/chat/completions` |
-| `OPENCODE_GO_MODEL` | モデル名（例: `qwen3.7-max`） |
+| `AI_API_KEY` | API キー（Authorization: Bearer に使用）。**シークレット** |
+| `AI_BASE_URL` | ベース URL（例: `https://opencode.ai/zen/go/v1`） |
+| `AI_MODEL` | モデル名（例: `qwen3.7-max`）。未設定時は `qwen3.7-max` を使用 |
 
-いずれかの変数が未設定の場合、あるいは LLM 呼び出しが失敗・タイムアウトした場合は、例外を投げることなく**既存の手動入力フローへ安全にフォールバック**します（タイトルが空のまま保存しようとすると `400 Title is required` になります）。
+いずれかの必須変数（`AI_API_KEY` / `AI_BASE_URL`）が未設定の場合、あるいは LLM 呼び出しが失敗した場合は、例外を投げることなく**既存の手動入力フローへ安全にフォールバック**します（タイトルが空のまま保存しようとすると `400 Title is required` になります）。
 
 ```bash
 # ローカル開発: .dev.vars.example をコピーして実際の値を設定
 cp .dev.vars.example .dev.vars
 
 # 本番: シークレットは wrangler secret put で設定
-wrangler secret put OPENCODE_GO_API_KEY
+wrangler secret put AI_API_KEY
 ```
 
-> **Note**: `OPENCODE_GO_BASE_URL` / `OPENCODE_GO_MODEL` は `wrangler.toml` の `[vars]` に既定値が設定されています。別のモデル等を使う場合は `.dev.vars` や `wrangler secret put` で上書きしてください。
+> **Note**: `AI_BASE_URL` / `AI_MODEL` は `wrangler.toml` の `[vars]` に既定値が設定されています。別のプロバイダ・モデル等を使う場合は `.dev.vars` や `wrangler secret put` で上書きしてください。
 
 ## アーキテクチャ決定記録 (ADR)
 

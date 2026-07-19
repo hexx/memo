@@ -2,10 +2,10 @@ import { Hono } from "hono";
 import { v4 as uuid } from "uuid";
 import { eq, like, and, or, desc, inArray } from "drizzle-orm";
 import { getDb } from "../db";
-import { generateTitle, type OpenCodeGoBindings } from "../lib/generateTitle";
+import { generateTitle, type AIBindings } from "../lib/generateTitle";
 import { memos, memoLabels, labels } from "../db/schema";
 
-type Bindings = { DB: D1Database } & OpenCodeGoBindings;
+type Bindings = { DB: D1Database } & AIBindings;
 
 const route = new Hono<{ Bindings: Bindings }>();
 

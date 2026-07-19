@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { generateTitle, type OpenCodeGoBindings } from "../generateTitle";
+import { generateTitle, type AIBindings } from "../generateTitle";
 
-const ENV: OpenCodeGoBindings = {
-  OPENCODE_GO_API_KEY: "test-key",
-  OPENCODE_GO_BASE_URL: "https://example.com/v1",
-  OPENCODE_GO_MODEL: "test-model",
+const ENV: AIBindings = {
+  AI_API_KEY: "test-key",
+  AI_BASE_URL: "https://example.com/v1",
+  AI_MODEL: "test-model",
 };
 
 function mockFetchOnce(result: Partial<Response> | Error) {
@@ -17,10 +17,18 @@ function mockFetchOnce(result: Partial<Response> | Error) {
 }
 
 const okResponse = (content: string): Response =>
-  ({
-    ok: true,
-    json: async () => ({ choices: [{ message: { content } }] }),
-  }) as Response;
+  new Response(
+    JSON.stringify({
+      id: "chatcmpl-1",
+      object: "chat.completion",
+      created: 0,
+      model: "test-model",
+      choices: [
+        { index: 0, message: { role: "assistant", content }, finish_reason: "stop" },
+      ],
+    }),
+    { status: 200, headers: { "content-type": "application/json" } }
+  );
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -31,7 +39,7 @@ describe("generateTitle", () => {
   it("returns null when API key is missing", async () => {
     const res = await generateTitle("本文です", {
       ...ENV,
-      OPENCODE_GO_API_KEY: "",
+      AI_API_KEY: "",
     });
     expect(res).toBeNull();
   });
@@ -39,7 +47,7 @@ describe("generateTitle", () => {
   it("returns null when baseUrl is missing", async () => {
     const res = await generateTitle("本文です", {
       ...ENV,
-      OPENCODE_GO_BASE_URL: undefined,
+      AI_BASE_URL: undefined,
     });
     expect(res).toBeNull();
   });
@@ -47,7 +55,7 @@ describe("generateTitle", () => {
   it("returns null when model is missing", async () => {
     const res = await generateTitle("本文です", {
       ...ENV,
-      OPENCODE_GO_MODEL: undefined,
+      AI_MODEL: undefined,
     });
     expect(res).toBeNull();
   });
@@ -64,7 +72,7 @@ describe("generateTitle", () => {
   });
 
   it("returns null when the response is not ok", async () => {
-    mockFetchOnce({ ok: false, json: async () => ({}) } as Response);
+    mockFetchOnce(new Response("error", { status: 400 }));
     const res = await generateTitle("本文", ENV);
     expect(res).toBeNull();
   });
@@ -89,10 +97,10 @@ describe("generateTitle", () => {
     expect(fn).toHaveBeenCalledTimes(1);
     const calls = fn.mock.calls as unknown as [string, RequestInit][];
     const [url, opts] = calls[0];
-    expect(url).toBe("https://example.com/v1/chat/completions");
-    expect(opts.headers).toMatchObject({
-      Authorization: "Bearer test-key",
-    });
+    expect(url).toContain("/chat/completions");
+    expect(url.startsWith("https://example.com/v1")).toBe(true);
+    const headers = new Headers(opts.headers as HeadersInit);
+    expect(headers.get("authorization")).toBe("Bearer test-key");
     const body = JSON.parse(opts.body as string);
     expect(body.model).toBe("test-model");
     expect(body.messages).toHaveLength(2);
