@@ -3,6 +3,14 @@ main = "src/server/index.ts"
 compatibility_date = "2024-10-01"
 compatibility_flags = ["nodejs_compat"]
 
+# AI によるタイトル自動生成（OpenCode Go / OpenAI 互換エンドポイント）
+# - OPENCODE_GO_BASE_URL / OPENCODE_GO_MODEL は非機密の設定値
+# - OPENCODE_GO_API_KEY はシークレットのため wrangler secret put で設定するか、
+#   ローカル開発時は .dev.vars に記載（.gitignore 済み）
+[vars]
+OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1"
+OPENCODE_GO_MODEL = "qwen3.7-max"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "org-memo-db"

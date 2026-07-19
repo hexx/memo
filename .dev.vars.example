@@ -1,0 +1,11 @@
+# ローカル開発用の環境変数テンプレート。
+# このファイルを .dev.vars としてコピーし、実際の値を埋めてください。
+# .dev.vars は .gitignore に含まれており、シークレットがコミットされることはありません。
+#
+#   cp .dev.vars.example .dev.vars
+#
+# 本番環境では `wrangler secret put OPENCODE_GO_API_KEY` で設定してください。
+
+OPENCODE_GO_API_KEY=your-api-key-here
+OPENCODE_GO_BASE_URL=https://opencode.ai/zen/go/v1
+OPENCODE_GO_MODEL=qwen3.7-max

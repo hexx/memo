@@ -76,6 +76,12 @@ export const updateMemo = (
 export const deleteMemo = (id: string) =>
   request<{ ok: boolean }>(`/memos/${id}`, { method: "DELETE" });
 
+export const generateTitle = (body: string) =>
+  request<{ title: string | null }>("/memos/generate-title", {
+    method: "POST",
+    body: JSON.stringify({ body }),
+  });
+
 export const togglePin = (id: string) =>
   request<{ isPinned: boolean }>(`/memos/${id}/pin`, { method: "PATCH" });
 
