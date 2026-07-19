@@ -2,11 +2,46 @@ import { Hono } from "hono";
 import { v4 as uuid } from "uuid";
 import { eq, like, and, or, desc, inArray } from "drizzle-orm";
 import { getDb } from "../db";
+import { generateTitle, type AIBindings } from "../lib/generateTitle";
 import { memos, memoLabels, labels } from "../db/schema";
 
-type Bindings = { DB: D1Database };
+type Bindings = { DB: D1Database } & AIBindings;
 
 const route = new Hono<{ Bindings: Bindings }>();
+
+// /generate-title で受け付ける本文の最大文字数（それ以上は 413 で弾く）
+const MAX_GENERATE_BODY_INPUT = 20000;
+
+// タイトル解決: 指定があればそれを優先し、空の場合は本文から AI 生成を試みる。
+// AI 生成も不可の場合は空文字を返し、呼び出し側で 400（Title is required）にする。
+async function resolveTitle(
+  providedTitle: unknown,
+  memoBody: string,
+  env: Bindings | undefined
+): Promise<string> {
+  const t = typeof providedTitle === "string" ? providedTitle.trim() : "";
+  if (t) return t;
+  const generated = await generateTitle(memoBody, env ?? {});
+  return generated ?? "";
+}
+
+// POST /api/memos/generate-title — 本文からタイトルを AI 生成（プレビュー用）
+route.post("/generate-title", async (c) => {
+  let body: { body?: string };
+  try {
+    body = await c.req.json<{ body?: string }>();
+  } catch {
+    body = {};
+  }
+  const memoBody = typeof body.body === "string" ? body.body : "";
+  // 過大なボディは LLM クレジットの枯渇・ワーカー資源の浪費を防ぐために弾く
+  // （generateTitle 側でも 2000 字に切り詰めるが、入力段階で上限を設ける）
+  if (memoBody.length > MAX_GENERATE_BODY_INPUT) {
+    return c.json({ error: "Body too large" }, 413);
+  }
+  const title = await generateTitle(memoBody, c.env ?? {});
+  return c.json({ title });
+});
 
 // GET /api/memos — メモ一覧（検索・ラベルフィルター・アーカイブ含む）
 route.get("/", async (c) => {
@@ -107,22 +142,23 @@ route.get("/:id", async (c) => {
 route.post("/", async (c) => {
   const db = getDb(c.env);
   const body = await c.req.json<{
-    title: string;
-    body: string;
+    title?: string;
+    body?: string;
     labelIds?: string[];
   }>();
-  if (!body.title || typeof body.title !== "string" || !body.title.trim()) {
-    return c.json({ error: "Title is required" }, 400);
-  }
   if (typeof body.body !== "string") {
     return c.json({ error: "Body is required" }, 400);
+  }
+  const title = await resolveTitle(body.title, body.body, c.env);
+  if (!title) {
+    return c.json({ error: "Title is required" }, 400);
   }
   const now = new Date().toISOString();
   const id = uuid();
 
   await db.insert(memos).values({
     id,
-    title: body.title.trim(),
+    title,
     body: body.body,
     createdAt: now,
     updatedAt: now,
@@ -144,13 +180,10 @@ route.put("/:id", async (c) => {
   const db = getDb(c.env);
   const id = c.req.param("id");
   const body = await c.req.json<{
-    title: string;
-    body: string;
+    title?: string;
+    body?: string;
     labelIds?: string[];
   }>();
-  if (!body.title || typeof body.title !== "string" || !body.title.trim()) {
-    return c.json({ error: "Title is required" }, 400);
-  }
   if (typeof body.body !== "string") {
     return c.json({ error: "Body is required" }, 400);
   }
@@ -162,10 +195,20 @@ route.put("/:id", async (c) => {
     .get();
   if (!existing) return c.json({ error: "Not found" }, 404);
 
+  // title が省略された場合は既存タイトルを維持する（毎回の更新で AI 生成・
+  // 意図せぬタイトル変更を防ぐ）。明示的に指定された場合のみ AI 生成を試みる。
+  const title =
+    body.title !== undefined
+      ? await resolveTitle(body.title, body.body, c.env)
+      : existing.title;
+  if (!title) {
+    return c.json({ error: "Title is required" }, 400);
+  }
+
   await db
     .update(memos)
     .set({
-      title: body.title.trim(),
+      title,
       body: body.body,
       updatedAt: new Date().toISOString(),
     })

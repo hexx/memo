@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useQuery } from "@tanstack/react-query";
-import { getLabels, createLabel, createMemo, type Memo } from "@/lib/api";
+import { getLabels, createLabel, createMemo, generateTitle, type Memo } from "@/lib/api";
 import { docToOrg, orgToHtml } from "@/lib/org-serialize";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import {
   Code,
   Link as LinkIcon,
   Quote,
+  Sparkles,
 } from "lucide-react";
 
 interface MemoEditorProps {
@@ -42,6 +43,7 @@ export function MemoEditor({
     initialMemo?.labels.map((l) => l.id) || []
   );
   const [newLabelName, setNewLabelName] = useState("");
+  const [generating, setGenerating] = useState(false);
 
   const { data: labels } = useQuery({
     queryKey: ["labels"],
@@ -78,6 +80,29 @@ export function MemoEditor({
     setBody(initialMemo?.body || "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, initialMemo?.id]);
+
+  const handleGenerateTitle = async () => {
+    const currentBody = editor ? docToOrg(editor.getJSON()) : body;
+    if (!currentBody.trim()) {
+      alert("本文を入力してください");
+      return;
+    }
+    setGenerating(true);
+    try {
+      const { title: gen } = await generateTitle(currentBody);
+      if (gen) {
+        setTitle(gen);
+      } else {
+        alert(
+          "タイトルの自動生成が利用できません（OPENCODE_GO_* 環境変数の設定を確認してください）"
+        );
+      }
+    } catch {
+      alert("タイトルの生成に失敗しました");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!title.trim()) return;
@@ -145,13 +170,23 @@ export function MemoEditor({
 
   return (
     <div className="space-y-4">
-      <div>
+      <div className="flex gap-2">
         <Input
           placeholder="タイトル（1行目）"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="text-lg font-medium"
+          className="text-lg font-medium flex-1"
         />
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleGenerateTitle}
+          disabled={generating || !body.trim()}
+          title="本文からタイトルをAIで生成"
+        >
+          <Sparkles className="h-4 w-4 mr-1" />
+          {generating ? "生成中..." : "AIで生成"}
+        </Button>
       </div>
 
       {editor && (
