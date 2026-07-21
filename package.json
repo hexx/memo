@@ -8,6 +8,7 @@
     "dev:api": "wrangler dev",
     "build": "vite build",
     "preview": "vite preview",
+    "icons:generate": "node scripts/generate-icons.mjs",
     "deploy": "wrangler deploy",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "wrangler d1 migrations apply org-memo-db",

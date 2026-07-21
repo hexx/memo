@@ -30,3 +30,14 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     </QueryClientProvider>
   </React.StrictMode>
 );
+
+// Service Worker の登録 (本番ビルドのみ)。
+// 初回描画と競合させないよう window load まで遅延し、
+// 非対応環境やプライベートモードでの失敗が表面化しないよう握りつぶす。
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {
+      /* SW は漸進的強化なので、登録失敗してもアプリ本体は動作させる */
+    });
+  });
+}
