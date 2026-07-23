@@ -148,7 +148,7 @@ npm run deploy
 |---|---|
 | `AI_API_KEY` | API キー（Authorization: Bearer に使用）。**シークレット** |
 | `AI_BASE_URL` | ベース URL（例: `https://opencode.ai/zen/go/v1`） |
-| `AI_MODEL` | モデル名（例: `qwen3.7-max`）。未設定時は `qwen3.7-max` を使用 |
+| `AI_MODEL` | モデル名（例: `deepseek-v4-flash`）。未設定時は `deepseek-v4-flash` を使用 |
 
 いずれかの必須変数（`AI_API_KEY` / `AI_BASE_URL`）が未設定の場合、あるいは LLM 呼び出しが失敗した場合は、例外を投げることなく**既存の手動入力フローへ安全にフォールバック**します（タイトルが空のまま保存しようとすると `400 Title is required` になります）。
 

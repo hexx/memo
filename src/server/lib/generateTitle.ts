@@ -7,7 +7,7 @@
 // 接続情報は次の 3 つの環境変数（Cloudflare Workers のバインディング）から取得する。
 //   - AI_API_KEY  : API キー（Authorization: Bearer に使用）。秘匿値
 //   - AI_BASE_URL : ベース URL（例: https://opencode.ai/zen/go/v1）
-//   - AI_MODEL    : モデル名（例: qwen3.7-max）。未設定時は既定値を使用
+//   - AI_MODEL    : モデル名（例: deepseek-v4-flash）。未設定時は既定値を使用
 //
 // いずれかの必須変数が未設定の場合、または呼び出しが失敗した場合は
 // null を返し、呼び出し側で「既存の手動入力フロー」へ安全にフォールバックする。
@@ -21,7 +21,7 @@ export interface AIBindings {
   AI_MODEL?: string;
 }
 
-const DEFAULT_MODEL = "qwen3.7-max"; // OpenCode Go エンドポイント向けの既定モデル
+const DEFAULT_MODEL = "deepseek-v4-flash"; // OpenCode Go エンドポイント向けの既定モデル
 const MAX_BODY_CHARS = 2000; // LLM へ送る本文の最大文字数
 const MAX_TITLE_CHARS = 50; // 生成タイトルの最大文字数
 
@@ -60,7 +60,10 @@ export async function generateTitle(
     const result = await generateText({
       model: getChatModel(env),
       system:
-        "あなたはメモアプリのタイトルを作成するアシスタントです。与えられたメモ本文から、内容を端的に表す短い日本語のタイトルを1つだけ生成してください。20文字程度とし、句読点や引用符は不要です。説明や補足は書かず、タイトル文字列のみを出力してください。",
+        // 先頭の /no_think は DeepSeek 系推論モデルのソフトスイッチ。
+        // タイトル生成は単純タスクのため推論（思考）を無効化し、レイテンシと
+        // 思考テキストの混入を抑止する。
+        "/no_think あなたはメモアプリのタイトルを作成するアシスタントです。与えられたメモ本文から、内容を端的に表す短い日本語のタイトルを1つだけ生成してください。20文字程度とし、句読点や引用符は不要です。説明や補足は書かず、タイトル文字列のみを出力してください。",
       prompt: truncated,
     });
 

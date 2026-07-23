@@ -9,7 +9,7 @@ compatibility_flags = ["nodejs_compat"]
 #   ローカル開発時は .dev.vars に記載（.gitignore 済み）
 [vars]
 AI_BASE_URL = "https://opencode.ai/zen/go/v1"
-AI_MODEL = "qwen3.7-max"
+AI_MODEL = "deepseek-v4-flash"
 
 [[d1_databases]]
 binding = "DB"
