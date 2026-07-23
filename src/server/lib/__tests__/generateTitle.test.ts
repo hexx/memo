@@ -52,12 +52,17 @@ describe("generateTitle", () => {
     expect(res).toBeNull();
   });
 
-  it("returns null when model is missing", async () => {
+  it("uses the default model when AI_MODEL is unset", async () => {
+    const fn = mockFetchOnce(okResponse("テストタイトル"));
     const res = await generateTitle("本文です", {
       ...ENV,
       AI_MODEL: undefined,
     });
-    expect(res).toBeNull();
+    expect(res).toBe("テストタイトル");
+    const calls = fn.mock.calls as unknown as [string, RequestInit][];
+    const [, opts] = calls[0];
+    const body = JSON.parse(opts.body as string);
+    expect(body.model).toBe("deepseek-v4-flash");
   });
 
   it("returns null when body is empty", async () => {
