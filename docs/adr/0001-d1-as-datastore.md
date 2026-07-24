@@ -1,4 +1,3 @@
-# D1 (SQLite) as the primary data store
+# D1 (SQLite) をプライマリデータストアに採用する
 
-We chose Cloudflare D1 over KV and R2 for memo and label storage. D1's relational model naturally fits the many-to-many relationship between memos and labels. KV would require manual index management, and R2 is object storage — neither is a good fit for structured, queryable data with filtering and search requirements.
-
+メモとラベルの保存先として、KV や R2 ではなく Cloudflare D1 を選んだ。D1 のリレーショナルモデルはメモとラベルの多対多関係に自然に適合する。KV では手動のインデックス管理が必要になり、R2 はオブジェクトストレージであるため、フィルタリングや検索を要する構造化・クエリ可能なデータのいずれにも適さない。

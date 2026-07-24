@@ -1,6 +1,5 @@
-# Store raw org text as memo body, not normalized AST output
+# 正規化した AST 出力ではなく生の org テキストをメモ本文として保存する
 
-We store the original org text verbatim as the memo body, rather than parsing with `org-toolkit` and re-serializing via `stringify()`. The `parse` → `stringify` roundtrip normalizes whitespace (e.g., strips list item indentation) and alters the original formatting, which would silently lose the user's original text. The AST is used only for metadata extraction (title, tags) during import.
+メモ本文には、`org-toolkit` でパースして `stringify()` で再シリアライズするのではなく、元の org テキストをそのまま保存する。`parse` → `stringify` のラウンドトリップは空白を正規化し（例: リスト項目のインデントを除去する）、元の書式を変えてしまうため、ユーザーの元のテキストが暗黙のうちに失われる。AST はインポート時のメタデータ（タイトル、タグ）抽出にのみ使用する。
 
-A future reader might assume we'd use the AST for roundtripping — this ADR explains why we don't.
-
+将来の読者はラウンドトリップに AST を使うと想定するかもしれないが、この ADR はそうしない理由を説明するものである。
