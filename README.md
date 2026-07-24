@@ -142,7 +142,7 @@ npm run deploy
 
 メモ作成・編集時に、タイトルを自分で入力する代わりに**本文の内容から AI で自動生成**できます。メモ編集画面の「AIで生成」ボタンを押すと、本文から短い日本語のタイトルが生成されます。また、`POST /memos` や `PUT /memos/:id` で `title` を空にした場合も、サーバー側で本文から自動生成します（手動入力された `title` がある場合はそちらを優先）。
 
-接続には Vercel AI SDK（`ai` の `generateText` と `@ai-sdk/openai-compatible` の `createOpenAICompatible`）を使用し、OpenAI 互換の任意のエンドポイント（OpenCode Go 等）を呼び出します。次の 3 つの環境変数（Cloudflare Workers のバインディング）から接続情報を取得します。
+接続には [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi/tree/main/packages/ai) の `openai-completions` API を使用し、OpenAI 互換の任意のエンドポイント（OpenCode Go 等）を呼び出します。`opencode.ai` 経路は pi-ai が自動で互換設定（`store` フィールドを送らない等）を判別します。次の 3 つの環境変数（Cloudflare Workers のバインディング）から接続情報を取得します。
 
 | 環境変数 | 説明 |
 |---|---|
@@ -166,6 +166,7 @@ wrangler secret put AI_API_KEY
 
 - [D1 (SQLite) をデータストアに採用](docs/adr/0001-d1-as-datastore.md) — メモとラベルの多対多リレーションを自然に扱うため
 - [メモ本文は生の org テキストを保存](docs/adr/0002-raw-org-text-storage.md) — AST 往復によるフォーマット崩れを防ぐため
+- [LLM 層に ai-sdk ではなく pi-ai を採用](docs/adr/0003-adopt-pi-ai-over-ai-sdk.md) — pi エコシステムへの統一。Workers バンドル膨張を避けるため固定メタデータを使用
 
 ## ライセンス
 
