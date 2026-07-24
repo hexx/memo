@@ -18,22 +18,23 @@ function createApp() {
   return app;
 }
 
+// pi-ai（内部の openai SDK）は常にストリーミングで要求するため、
+// 成功応答は SSE（text/event-stream）で返す必要がある。
 function mockFetchOnce(content: string) {
+  const base = { id: "chatcmpl-1", object: "chat.completion.chunk", created: 0, model: "test-model" };
+  const delta = {
+    ...base,
+    choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }],
+  };
+  const stop = { ...base, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] };
+  const body = `data: ${JSON.stringify(delta)}\n\ndata: ${JSON.stringify(stop)}\n\ndata: [DONE]\n\n`;
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          id: "chatcmpl-1",
-          object: "chat.completion",
-          created: 0,
-          model: "test-model",
-          choices: [
-            { index: 0, message: { role: "assistant", content }, finish_reason: "stop" },
-          ],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } }
-      )
+      new Response(body, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      })
     )
   );
 }

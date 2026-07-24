@@ -3,7 +3,7 @@ main = "src/server/index.ts"
 compatibility_date = "2024-10-01"
 compatibility_flags = ["nodejs_compat"]
 
-# AI によるタイトル自動生成（OpenAI 互換エンドポイント / Vercel AI SDK）
+# AI によるタイトル自動生成（OpenAI 互換エンドポイント / @earendil-works/pi-ai）
 # - AI_BASE_URL / AI_MODEL は非機密の設定値
 # - AI_API_KEY はシークレットのため wrangler secret put で設定するか、
 #   ローカル開発時は .dev.vars に記載（.gitignore 済み）
