@@ -64,7 +64,7 @@ export function MemoEditor({
     editorProps: {
       attributes: {
         class:
-          "min-h-[300px] max-h-[60vh] overflow-y-auto rounded-md border border-input bg-background p-3 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-ring prose-org",
+          "min-h-[300px] max-h-[60vh] overflow-y-auto rounded-md border border-input bg-background p-3 text-sm leading-relaxed focus:outline-hidden focus:ring-2 focus:ring-ring prose-org",
         "aria-label": "メモ本文",
       },
     },
