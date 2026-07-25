@@ -60,11 +60,10 @@ function MemoEditPage() {
           削除
         </Button>
       </div>
+      {/* 詳細画面の保存後は画面に留まる（連続編集を許容）。ホームへは「← 戻る」で遷移する。
+          削除時のみ onSuccess でホームへ遷移する。保存後コールバックは新規作成経路専用のためここでは渡さない。 */}
       <MemoEditor
         initialMemo={memo}
-        onSaved={() => {
-          navigate({ to: "/" });
-        }}
         saving={updateMutation.isPending}
         onSave={(data) => updateMutation.mutate(data)}
       />
