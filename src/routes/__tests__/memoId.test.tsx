@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
-// メモ詳細/編集画面（routes/memos/$memoId.tsx）の配線契約（ADR 0006）:
-// パラメータ取得・MemoEditor 描画・保存（updateMemo→ホーム遷移）・削除・エラー表示
+// メモ詳細/編集画面（routes/memos/$memoId.tsx）の配線契約（ADR 0006 / ADR 0007）:
+// パラメータ取得・MemoEditor 描画・保存（updateMemo→画面に留まる）・削除（ホーム遷移）・エラー表示
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -83,8 +83,8 @@ describe("メモ詳細画面", () => {
         })
       )
     );
-    // 詳細画面での保存は遷移しない（onSave が onSaved を短絡するため）。
-    // 削除時のみホームへ戻る。
+    // 詳細画面での保存は遷移しない（ADR 0007: 連続編集を許容するため画面に留まる）。
+    // ホームへは「← 戻る」ボタンで遷移し、削除時のみ onSuccess でホームへ戻る。
     expect(router.state.location.pathname).toBe("/memos/abc");
   });
 
