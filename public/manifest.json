@@ -9,7 +9,6 @@
   "dir": "ltr",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
-  "orientation": "any",
   "background_color": "#ffffff",
   "theme_color": "#ffffff",
   "categories": ["productivity", "utilities"],
