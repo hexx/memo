@@ -1,6 +1,8 @@
 ---
 title: "wrangler.toml の database_id を本番用 UUID に置き換える"
-status: TODO
+status: DONE
+resolved: 2026-07-25T00:00:00+09:00
+resolution: "UUID 非コミット方針により本 issue の案（UUID を wrangler.toml に記載）は不採用。ローカルで実 UUID を記載して deploy する運用を継続（ADR 0008 で確定）"
 created: 2026-07-05T12:00:00+09:00
 ---
 

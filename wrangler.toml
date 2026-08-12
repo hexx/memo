@@ -14,6 +14,9 @@ AI_MODEL = "deepseek-v4-flash"
 [[d1_databases]]
 binding = "DB"
 database_name = "org-memo-db"
+# 本番の実 UUID はリポジトリに記載しない方針（ADR 0008 参照）。
+# 注意: "local" はローカル開発専用。wrangler deploy は database_id をそのまま送信するため、
+# 本番デプロイ時はローカルで実 UUID を記載してから実行すること（コミットしない）。
 database_id = "local"
 
 [assets]
