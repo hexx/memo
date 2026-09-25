@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { memosRoute } from "./routes/memos";
+import { diariesRoute } from "./routes/diaries";
 import { labelsRoute } from "./routes/labels";
 import { importExportRoute } from "./routes/import-export";
 
@@ -9,6 +10,7 @@ const app = new Hono();
 app.use("*", cors());
 
 app.route("/api/memos", memosRoute);
+app.route("/api/diaries", diariesRoute);
 app.route("/api/labels", labelsRoute);
 app.route("/api", importExportRoute);
 

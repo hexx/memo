@@ -1,9 +1,16 @@
 import { Hono } from "hono";
 import { v4 as uuid } from "uuid";
-import { eq, like, and, or, desc, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { generateTitle, type AIBindings } from "../lib/generateTitle";
+import { listMemos } from "../lib/listMemos";
+import { isUniqueConstraintError } from "../lib/dbErrors";
 import { memos, memoLabels, labels } from "../db/schema";
+import {
+  defaultDiaryTitle,
+  isFutureDate,
+  isValidDateString,
+} from "../../lib/diaryDate";
 
 type Bindings = { DB: D1Database } & AIBindings;
 
@@ -43,77 +50,21 @@ route.post("/generate-title", async (c) => {
   return c.json({ title });
 });
 
-// GET /api/memos — メモ一覧（検索・ラベルフィルター・アーカイブ含む）
+// GET /api/memos — メモ一覧（検索・ラベルフィルター・アーカイブ・日記の絞り込み）
+// diary=0 で日記以外、diary=1 で日記のみ（ホームは diary=0、日記ビューは /api/diaries を使う）
 route.get("/", async (c) => {
   const db = getDb(c.env);
-  const query = c.req.query("q") || "";
-  const labelId = c.req.query("label");
-  const includeArchived = c.req.query("archived") === "1";
+  const diaryParam = c.req.query("diary");
+  let diary: "only" | "exclude" | undefined;
+  if (diaryParam === "1") diary = "only";
+  else if (diaryParam === "0") diary = "exclude";
 
-  const conditions = [];
-  if (!includeArchived) {
-    conditions.push(eq(memos.isArchived, 0));
-  }
-  if (query) {
-    conditions.push(
-      or(like(memos.title, `%${query}%`), like(memos.body, `%${query}%`))
-    );
-  }
-
-  let memoRows;
-  if (labelId) {
-    memoRows = await db
-      .select({
-        id: memos.id,
-        title: memos.title,
-        body: memos.body,
-        isPinned: memos.isPinned,
-        isArchived: memos.isArchived,
-        createdAt: memos.createdAt,
-        updatedAt: memos.updatedAt,
-      })
-      .from(memos)
-      .innerJoin(memoLabels, eq(memos.id, memoLabels.memoId))
-      .where(and(eq(memoLabels.labelId, labelId), ...conditions))
-      .orderBy(desc(memos.isPinned), desc(memos.updatedAt))
-      .all();
-  } else {
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-    memoRows = await db
-      .select()
-      .from(memos)
-      .where(whereClause)
-      .orderBy(desc(memos.isPinned), desc(memos.updatedAt))
-      .all();
-  }
-
-  // 各メモのラベルを取得
-  const memoIds = memoRows.map((m) => m.id);
-  const allMemoLabels =
-    memoIds.length > 0
-      ? await db
-          .select({
-            memoId: memoLabels.memoId,
-            labelId: labels.id,
-            labelName: labels.name,
-          })
-          .from(memoLabels)
-          .innerJoin(labels, eq(memoLabels.labelId, labels.id))
-          .where(inArray(memoLabels.memoId, memoIds))
-          .all()
-      : [];
-
-  const labelMap = new Map<string, { id: string; name: string }[]>();
-  for (const ml of allMemoLabels) {
-    if (!labelMap.has(ml.memoId)) labelMap.set(ml.memoId, []);
-    labelMap.get(ml.memoId)?.push({ id: ml.labelId, name: ml.labelName });
-  }
-
-  const result = memoRows.map((m) => ({
-    ...m,
-    labels: labelMap.get(m.id) || [],
-  }));
-
+  const result = await listMemos(db, {
+    q: c.req.query("q") || undefined,
+    labelId: c.req.query("label") || undefined,
+    includeArchived: c.req.query("archived") === "1",
+    diary,
+  });
   return c.json(result);
 });
 
@@ -138,7 +89,7 @@ route.get("/:id", async (c) => {
   return c.json({ ...memo, labels: memoLabelRows });
 });
 
-// POST /api/memos — メモ作成
+// POST /api/memos — メモ作成（日記は POST /api/diaries を使う）
 route.post("/", async (c) => {
   const db = getDb(c.env);
   const body = await c.req.json<{
@@ -176,14 +127,23 @@ route.post("/", async (c) => {
 });
 
 // PUT /api/memos/:id — メモ更新
+// 日記のときは entryDate で日付を変更できる（1 日 1 件のため重複は 409）。
+// 日記以外に entryDate を指定すること（メモ→日記の変換）は受け付けない。
 route.put("/:id", async (c) => {
   const db = getDb(c.env);
   const id = c.req.param("id");
-  const body = await c.req.json<{
+  let body: {
     title?: string;
     body?: string;
     labelIds?: string[];
-  }>();
+    entryDate?: string;
+  };
+  try {
+    const parsed: unknown = await c.req.json();
+    body = parsed && typeof parsed === "object" ? (parsed as typeof body) : {};
+  } catch {
+    body = {};
+  }
   if (typeof body.body !== "string") {
     return c.json({ error: "Body is required" }, 400);
   }
@@ -195,24 +155,80 @@ route.put("/:id", async (c) => {
     .get();
   if (!existing) return c.json({ error: "Not found" }, 404);
 
-  // title が省略された場合は既存タイトルを維持する（毎回の更新で AI 生成・
-  // 意図せぬタイトル変更を防ぐ）。明示的に指定された場合のみ AI 生成を試みる。
-  const title =
-    body.title !== undefined
-      ? await resolveTitle(body.title, body.body, c.env)
-      : existing.title;
-  if (!title) {
-    return c.json({ error: "Title is required" }, 400);
+  // 日付の解決（日記のみ）
+  let entryDate = existing.entryDate;
+  if (body.entryDate !== undefined) {
+    if (existing.entryDate === null) {
+      return c.json({ error: "Not a diary" }, 400);
+    }
+    if (
+      typeof body.entryDate !== "string" ||
+      !isValidDateString(body.entryDate)
+    ) {
+      return c.json({ error: "Invalid date" }, 400);
+    }
+    if (isFutureDate(body.entryDate)) {
+      return c.json({ error: "Date is in the future" }, 400);
+    }
+    if (body.entryDate !== existing.entryDate) {
+      const duplicate = await db
+        .select({ id: memos.id })
+        .from(memos)
+        .where(eq(memos.entryDate, body.entryDate))
+        .get();
+      if (duplicate && duplicate.id !== id) {
+        return c.json({ error: "Diary already exists for this date" }, 409);
+      }
+    }
+    entryDate = body.entryDate;
   }
 
-  await db
-    .update(memos)
-    .set({
-      title,
-      body: body.body,
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(memos.id, id));
+  // タイトル解決。日記は AI 自動生成を使わず、日付の既定タイトルにフォールバックする。
+  // 日付変更時、タイトルが旧既定値のまま（未編集）なら新日付へ追従させる。
+  let title: string;
+  if (existing.entryDate !== null) {
+    const currentDate = existing.entryDate;
+    const nextDate = entryDate ?? currentDate;
+    if (body.title !== undefined) {
+      const provided = typeof body.title === "string" ? body.title.trim() : "";
+      title = provided || defaultDiaryTitle(nextDate);
+    } else if (
+      nextDate !== currentDate &&
+      existing.title === defaultDiaryTitle(currentDate)
+    ) {
+      title = defaultDiaryTitle(nextDate);
+    } else {
+      title = existing.title;
+    }
+  } else {
+    // title が省略された場合は既存タイトルを維持する（毎回の更新で AI 生成・
+    // 意図せぬタイトル変更を防ぐ）。明示的に指定された場合のみ AI 生成を試みる。
+    title =
+      body.title !== undefined
+        ? await resolveTitle(body.title, body.body, c.env)
+        : existing.title;
+    if (!title) {
+      return c.json({ error: "Title is required" }, 400);
+    }
+  }
+
+  try {
+    await db
+      .update(memos)
+      .set({
+        title,
+        body: body.body,
+        entryDate,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(memos.id, id));
+  } catch (err) {
+    // 事前チェックをすり抜けた同時更新は UNIQUE 違反を 409 に変換する
+    if (isUniqueConstraintError(err)) {
+      return c.json({ error: "Diary already exists for this date" }, 409);
+    }
+    throw err;
+  }
 
   if (body.labelIds !== undefined) {
     await db.delete(memoLabels).where(eq(memoLabels.memoId, id));

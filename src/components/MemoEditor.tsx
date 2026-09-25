@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useQuery } from "@tanstack/react-query";
-import { getLabels, createLabel, createMemo, generateTitle, type Memo } from "@/lib/api";
+import { getLabels, createLabel, createMemo, createDiary, generateTitle, type Memo } from "@/lib/api";
 import { docToOrg, orgToHtml } from "@/lib/org-serialize";
+import { defaultDiaryTitle, todayInTokyo } from "@/lib/diaryDate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +29,12 @@ interface MemoEditorProps {
     title: string;
     body: string;
     labelIds?: string[];
+    entryDate?: string;
   }) => void;
+  /** 日記モード: 日付ピッカーを表示し、タイトルの既定値を日付にする */
+  isDiary?: boolean;
+  /** 新規日記の初期日付（未指定なら Asia/Tokyo の今日） */
+  initialEntryDate?: string;
 }
 
 export function MemoEditor({
@@ -36,8 +42,15 @@ export function MemoEditor({
   onSaved,
   saving,
   onSave,
+  isDiary = false,
+  initialEntryDate,
 }: MemoEditorProps) {
-  const [title, setTitle] = useState(initialMemo?.title || "");
+  const initialDate =
+    initialMemo?.entryDate ?? (isDiary ? initialEntryDate || todayInTokyo() : null);
+  const [entryDate, setEntryDate] = useState(initialDate ?? "");
+  const [title, setTitle] = useState(
+    initialMemo?.title || (initialDate ? defaultDiaryTitle(initialDate) : "")
+  );
   const [body, setBody] = useState(initialMemo?.body || "");
   const [selectedLabels, setSelectedLabels] = useState<string[]>(
     initialMemo?.labels.map((l) => l.id) || []
@@ -78,8 +91,25 @@ export function MemoEditor({
     if (!editor) return;
     editor.commands.setContent(orgToHtml(initialMemo?.body || ""));
     setBody(initialMemo?.body || "");
+    const nextDate = isDiary
+      ? initialMemo?.entryDate ?? initialDate ?? todayInTokyo()
+      : null;
+    setTitle(
+      initialMemo?.title || (nextDate ? defaultDiaryTitle(nextDate) : "")
+    );
+    if (isDiary && nextDate) {
+      setEntryDate(nextDate);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, initialMemo?.id]);
+
+  // 日付変更。タイトルが旧日付の既定値のまま（未編集）なら追従させる。
+  const handleDateChange = (next: string) => {
+    if (isDiary && entryDate && title === defaultDiaryTitle(entryDate)) {
+      setTitle(next ? defaultDiaryTitle(next) : "");
+    }
+    setEntryDate(next);
+  };
 
   const handleGenerateTitle = async () => {
     const currentBody = editor ? docToOrg(editor.getJSON()) : body;
@@ -105,21 +135,42 @@ export function MemoEditor({
   };
 
   const handleSave = async () => {
-    if (!title.trim()) return;
+    if (!isDiary && !title.trim()) return;
+    if (isDiary && !entryDate) {
+      alert("日付を入力してください");
+      return;
+    }
 
     const currentBody = editor ? docToOrg(editor.getJSON()) : body;
+    // 日記はタイトルが空でも保存できる（日付の既定タイトルで再補完する）
+    const effectiveTitle =
+      title.trim() || (isDiary ? defaultDiaryTitle(entryDate) : "");
 
     if (onSave) {
-      onSave({ title: title.trim(), body: currentBody, labelIds: selectedLabels });
+      onSave({
+        title: effectiveTitle,
+        body: currentBody,
+        labelIds: selectedLabels,
+        ...(isDiary ? { entryDate } : {}),
+      });
       return;
     }
 
     try {
-      await createMemo({
-        title: title.trim(),
-        body: currentBody,
-        labelIds: selectedLabels,
-      });
+      if (isDiary) {
+        await createDiary({
+          title: effectiveTitle,
+          body: currentBody,
+          labelIds: selectedLabels,
+          entryDate,
+        });
+      } else {
+        await createMemo({
+          title: effectiveTitle,
+          body: currentBody,
+          labelIds: selectedLabels,
+        });
+      }
       onSaved?.();
     } catch (err) {
       alert(err instanceof Error ? err.message : "保存に失敗しました");
@@ -170,6 +221,25 @@ export function MemoEditor({
 
   return (
     <div className="space-y-4">
+      {isDiary && (
+        <div className="flex items-center gap-2">
+          <label
+            htmlFor="diary-entry-date"
+            className="text-sm text-muted-foreground"
+          >
+            日付
+          </label>
+          <Input
+            id="diary-entry-date"
+            type="date"
+            value={entryDate}
+            max={todayInTokyo()}
+            onChange={(e) => handleDateChange(e.target.value)}
+            className="w-auto"
+            required
+          />
+        </div>
+      )}
       <div className="flex gap-2">
         <Input
           placeholder="タイトル（1行目）"
@@ -236,7 +306,10 @@ export function MemoEditor({
       </div>
 
       <div className="flex justify-end gap-2 pt-4">
-        <Button onClick={handleSave} disabled={saving || !title.trim()}>
+        <Button
+          onClick={handleSave}
+          disabled={saving || (!isDiary && !title.trim()) || (isDiary && !entryDate)}
+        >
           {saving ? "保存中..." : isNew ? "作成" : "保存"}
         </Button>
       </div>

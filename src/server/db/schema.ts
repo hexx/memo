@@ -1,14 +1,20 @@
-import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-export const memos = sqliteTable("memos", {
-  id: text("id").primaryKey(),
-  title: text("title").notNull(),
-  body: text("body").notNull(),
-  isPinned: integer("is_pinned").notNull().default(0),
-  isArchived: integer("is_archived").notNull().default(0),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull(),
-});
+export const memos = sqliteTable(
+  "memos",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    // 日記の日付（YYYY-MM-DD）。通常メモは NULL。1 日 1 件を UNIQUE で強制
+    entryDate: text("entry_date"),
+    isPinned: integer("is_pinned").notNull().default(0),
+    isArchived: integer("is_archived").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [uniqueIndex("memos_entry_date_unique").on(table.entryDate)]
+);
 
 export const labels = sqliteTable("labels", {
   id: text("id").primaryKey(),

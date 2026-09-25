@@ -8,7 +8,7 @@
 // - リンクのスキーマサニタイズ（XSS 防止）
 // ツールバーの各マーク操作（TipTap 本体）は測らない。
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -17,21 +17,25 @@ import {
   getLabels,
   createLabel,
   createMemo,
+  createDiary,
   generateTitle,
   type Memo,
 } from "@/lib/api";
+import { defaultDiaryTitle, todayInTokyo } from "@/lib/diaryDate";
 
 // API はモジュール境界でモック（実サーバには一切接続しない）
 vi.mock("@/lib/api", () => ({
   getLabels: vi.fn(),
   createLabel: vi.fn(),
   createMemo: vi.fn(),
+  createDiary: vi.fn(),
   generateTitle: vi.fn(),
 }));
 
 const mockedGetLabels = vi.mocked(getLabels);
 const mockedCreateLabel = vi.mocked(createLabel);
 const mockedCreateMemo = vi.mocked(createMemo);
+const mockedCreateDiary = vi.mocked(createDiary);
 const mockedGenerateTitle = vi.mocked(generateTitle);
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -46,6 +50,7 @@ function makeMemo(overrides: Partial<Memo> = {}): Memo {
     id: "m1",
     title: "Existing",
     body: "plain body",
+    entryDate: null,
     isPinned: 0,
     isArchived: 0,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -68,6 +73,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockedGetLabels.mockResolvedValue([]);
   mockedCreateMemo.mockResolvedValue({ id: "new-id" });
+  mockedCreateDiary.mockResolvedValue({
+    id: "new-diary",
+    entryDate: "2020-01-05",
+    title: "2020-01-05 (日)",
+  });
   // jsdom の alert は未実装のため、必ずモックしてから操作する
   alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
 });
@@ -284,5 +294,82 @@ describe("リンクサニタイズ（XSS 防止）", () => {
       expect(editorEl.querySelector('a[href="https://example.com"]')).not.toBeNull()
     );
     expect(alertSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("日記モード", () => {
+  it("日付ピッカーと日付の既定タイトルで初期化される", async () => {
+    const today = todayInTokyo();
+    render(<MemoEditor isDiary />, { wrapper });
+
+    expect(await screen.findByLabelText("日付")).toHaveValue(today);
+    expect(screen.getByPlaceholderText("タイトル（1行目）")).toHaveValue(
+      defaultDiaryTitle(today)
+    );
+  });
+
+  it("未編集のタイトルは日付変更に追従する", async () => {
+    render(<MemoEditor isDiary />, { wrapper });
+    const dateInput = await screen.findByLabelText("日付");
+
+    fireEvent.change(dateInput, { target: { value: "2020-01-05" } });
+
+    expect(screen.getByPlaceholderText("タイトル（1行目）")).toHaveValue(
+      "2020-01-05 (日)"
+    );
+  });
+
+  it("編集済みのタイトルは日付変更でも保持される", async () => {
+    const user = userEvent.setup();
+    render(<MemoEditor isDiary />, { wrapper });
+    const titleInput = await screen.findByPlaceholderText("タイトル（1行目）");
+    await user.clear(titleInput);
+    await user.type(titleInput, "旅行の記録");
+
+    fireEvent.change(screen.getByLabelText("日付"), {
+      target: { value: "2020-01-05" },
+    });
+
+    expect(titleInput).toHaveValue("旅行の記録");
+  });
+
+  it("保存時に entryDate 付きで createDiary を呼ぶ", async () => {
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<MemoEditor isDiary onSaved={onSaved} />, { wrapper });
+    await screen.findByLabelText("日付");
+
+    fireEvent.change(screen.getByLabelText("日付"), {
+      target: { value: "2020-01-05" },
+    });
+    await user.click(getSaveButton());
+
+    await waitFor(() =>
+      expect(mockedCreateDiary).toHaveBeenCalledWith({
+        title: "2020-01-05 (日)",
+        body: "",
+        labelIds: [],
+        entryDate: "2020-01-05",
+      })
+    );
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
+
+  it("空タイトルでも日付の既定タイトルで保存できる", async () => {
+    const user = userEvent.setup();
+    render(<MemoEditor isDiary initialEntryDate="2020-01-05" />, { wrapper });
+    const titleInput = await screen.findByPlaceholderText("タイトル（1行目）");
+    await user.clear(titleInput);
+
+    await user.click(getSaveButton());
+
+    await waitFor(() =>
+      expect(mockedCreateDiary).toHaveBeenCalledWith({
+        title: "2020-01-05 (日)",
+        body: "",
+        labelIds: [],
+        entryDate: "2020-01-05",
+      })
+    );
   });
 });

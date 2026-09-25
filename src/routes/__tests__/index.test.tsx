@@ -31,6 +31,8 @@ vi.mock("@/lib/api", () => ({
   deleteLabel: vi.fn(),
   importOrgText: vi.fn(),
   importOrgFile: vi.fn(),
+  getDiaries: vi.fn(),
+  createDiary: vi.fn(),
   getExportUrl: (id: string) => `/api/memos/${id}/export`,
 }));
 
@@ -46,6 +48,7 @@ function memo(overrides: Partial<Memo> = {}): Memo {
     id: "m1",
     title: "Memo One",
     body: "body one",
+    entryDate: null,
     isPinned: 0,
     isArchived: 0,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -106,6 +109,7 @@ describe("検索", () => {
       expect(mockedGetMemos).toHaveBeenLastCalledWith({
         q: "foo",
         label: undefined,
+        diary: "exclude",
       })
     );
   });
@@ -123,6 +127,7 @@ describe("ラベルフィルタ", () => {
       expect(mockedGetMemos).toHaveBeenLastCalledWith({
         q: undefined,
         label: "l1",
+        diary: "exclude",
       })
     );
 
@@ -131,6 +136,7 @@ describe("ラベルフィルタ", () => {
       expect(mockedGetMemos).toHaveBeenLastCalledWith({
         q: undefined,
         label: undefined,
+        diary: "exclude",
       })
     );
   });

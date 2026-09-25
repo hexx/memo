@@ -5,6 +5,7 @@ Google Keep ライクなメモアプリケーション。org-mode 記法での�
 ## 主な機能
 
 - **メモの作成・編集・削除** — org-mode 記法（見出し、リスト、太字、イタリック、コードブロック、リンクなど）による構造化メモ
+- **日記** — 日付に紐づくメモ（1日1件、遡及作成可）。日記ビューで日付順に閲覧・検索でき、org の `#+DATE:` で入出力に対応
 - **ラベル管理** — メモに複数のラベルを付与して整理・フィルタリング
 - **ピン留め** — 重要なメモを先頭に固定表示
 - **アーカイブ** — 使用頻度の低いメモをメイン画面から非表示
@@ -38,11 +39,13 @@ src/
 │   └── ui/                 # shadcn/ui コンポーネント
 ├── lib/
 │   ├── api.ts              # API クライアント
+│   ├── diaryDate.ts        # 日記の日付ロジック（サーバーと共有）
 │   ├── utils.ts            # ユーティリティ
 │   └── __tests__/          # フロントエンドテスト
 ├── routes/                 # TanStack Router のルート定義
 │   ├── __root.tsx          # ルートレイアウト
 │   ├── index.tsx           # メイン画面（メモ一覧）
+│   ├── diary.tsx           # 日記ビュー
 │   ├── archive.tsx         # アーカイブ画面
 │   ├── labels.tsx          # ラベル管理画面
 │   └── memos/
@@ -55,6 +58,7 @@ src/
     │   └── index.ts        # DB 接続
     └── routes/
         ├── memos.ts        # メモ CRUD API
+        ├── diaries.ts      # 日記 API
         ├── labels.ts       # ラベル CRUD API
         ├── import-export.ts # インポート/エクスポート API
         └── __tests__/      # サーバーテスト
@@ -69,6 +73,7 @@ src/
 | id | TEXT (PK) | UUID |
 | title | TEXT (NOT NULL) | メモのタイトル |
 | body | TEXT (NOT NULL) | org-mode 形式の本文 |
+| entry_date | TEXT (NULL) | 日記の日付 (YYYY-MM-DD)。UNIQUE。通常メモは NULL |
 | is_pinned | INTEGER (DEFAULT 0) | ピン留めフラグ |
 | is_archived | INTEGER (DEFAULT 0) | アーカイブフラグ |
 | created_at | TEXT (NOT NULL) | 作成日時 (ISO 8601) |
@@ -92,11 +97,13 @@ src/
 
 | メソッド | パス | 説明 |
 |---|---|---|
-| GET | `/memos` | メモ一覧（検索・ラベルフィルタ・アーカイブ含む） |
+| GET | `/memos` | メモ一覧（検索・ラベルフィルタ・アーカイブ含む。`diary=0` で日記以外、`diary=1` で日記のみ） |
 | POST | `/memos` | メモ作成 |
+| GET | `/diaries` | 日記一覧（検索・ラベルフィルタ・`archived`・`date`。日付降順） |
+| POST | `/diaries` | 日記作成（`entryDate` 省略時はサーバーが Asia/Tokyo の今日を割当） |
 | POST | `/memos/generate-title` | 本文からタイトルを AI 生成（プレビュー用。生成不可時は `{ title: null }`） |
 | GET | `/memos/:id` | メモ取得 |
-| PUT | `/memos/:id` | メモ更新 |
+| PUT | `/memos/:id` | メモ更新（日記の日付変更は `entryDate` を指定） |
 | DELETE | `/memos/:id` | メモ削除（物理削除） |
 | PATCH | `/memos/:id/pin` | ピン留め切り替え |
 | PATCH | `/memos/:id/archive` | アーカイブ切り替え |
@@ -150,7 +157,7 @@ npm run deploy
 | `AI_BASE_URL` | ベース URL（例: `https://opencode.ai/zen/go/v1`） |
 | `AI_MODEL` | モデル名（例: `deepseek-v4-flash`）。未設定時は `deepseek-v4-flash` を使用 |
 
-いずれかの必須変数（`AI_API_KEY` / `AI_BASE_URL`）が未設定の場合、あるいは LLM 呼び出しが失敗した場合は、例外を投げることなく**既存の手動入力フローへ安全にフォールバック**します（タイトルが空のまま保存しようとすると `400 Title is required` になります）。
+いずれかの必須変数（`AI_API_KEY` / `AI_BASE_URL`）が未設定の場合、あるいは LLM 呼び出しが失敗した場合は、例外を投げることなく**既存の手動入力フローへ安全にフォールバック**します（タイトルが空のまま保存しようとすると `400 Title is required` になります）。なお、日記はタイトルの既定値が日付（`YYYY-MM-DD (曜)`）であり、AI 自動生成は行われません（「AIで生成」ボタンは任意で利用できます）。
 
 ```bash
 # ローカル開発: .dev.vars.example をコピーして実際の値を設定

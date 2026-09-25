@@ -28,6 +28,8 @@ vi.mock("@/lib/api", () => ({
   deleteLabel: vi.fn(),
   importOrgText: vi.fn(),
   importOrgFile: vi.fn(),
+  getDiaries: vi.fn(),
+  createDiary: vi.fn(),
   getExportUrl: (id: string) => `/api/memos/${id}/export`,
 }));
 
@@ -41,6 +43,7 @@ function memo(overrides: Partial<Memo> = {}): Memo {
     id: "abc",
     title: "Detail Memo",
     body: "* H",
+    entryDate: null,
     isPinned: 0,
     isArchived: 0,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -107,5 +110,54 @@ describe("メモ詳細画面", () => {
     renderApp("/memos/abc");
 
     expect(await screen.findByText("エラー: boom")).toBeInTheDocument();
+  });
+});
+
+describe("日記の詳細画面", () => {
+  it("日記は日付ピッカー付きで表示し、「← 戻る」で /diary へ遷移する", async () => {
+    const user = userEvent.setup();
+    mockedGetMemo.mockResolvedValue(
+      memo({ title: "2020-01-05 (日)", entryDate: "2020-01-05" })
+    );
+    const { router } = renderApp("/memos/abc");
+    await screen.findByDisplayValue("2020-01-05 (日)");
+
+    expect(screen.getByLabelText("日付")).toHaveValue("2020-01-05");
+
+    await user.click(screen.getByRole("button", { name: "← 戻る" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/diary"));
+  });
+
+  it("保存すると entryDate 付きで updateMemo が呼ばれる", async () => {
+    const user = userEvent.setup();
+    mockedGetMemo.mockResolvedValue(
+      memo({ title: "2020-01-05 (日)", entryDate: "2020-01-05" })
+    );
+    renderApp("/memos/abc");
+    await screen.findByDisplayValue("2020-01-05 (日)");
+
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(mockedUpdateMemo).toHaveBeenCalledWith(
+        "abc",
+        expect.objectContaining({ entryDate: "2020-01-05" })
+      )
+    );
+  });
+
+  it("日記の削除後は /diary へ遷移する", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockedGetMemo.mockResolvedValue(
+      memo({ title: "2020-01-05 (日)", entryDate: "2020-01-05" })
+    );
+    const { router } = renderApp("/memos/abc");
+    await screen.findByDisplayValue("2020-01-05 (日)");
+
+    await user.click(screen.getByRole("button", { name: "削除" }));
+
+    await waitFor(() => expect(mockedDeleteMemo).toHaveBeenCalledWith("abc"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/diary"));
   });
 });

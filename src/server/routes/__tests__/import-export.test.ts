@@ -106,6 +106,57 @@ describe("import-export", () => {
       const res = await req(createApp(), "POST", "/import", { text: "" });
       expect(res.status).toBe(400);
     });
+
+    it("#+DATE があれば日記として取り込む（#+TITLE 優先）", async () => {
+      const res = await req(createApp(), "POST", "/import", {
+        text: "#+TITLE: My Day\n#+DATE: 2020-01-05\nbody",
+      });
+      expect(res.status).toBe(201);
+      const data = await res.json();
+      expect(data.entryDate).toBe("2020-01-05");
+      expect(data.title).toBe("My Day");
+    });
+
+    it("日記で #+TITLE も本文先頭行もなければ日付の既定タイトルになる", async () => {
+      const res = await req(createApp(), "POST", "/import", {
+        text: "#+DATE: 2020-01-05",
+      });
+      const data = await res.json();
+      expect(data.entryDate).toBe("2020-01-05");
+      expect(data.title).toBe("2020-01-05 (日)");
+    });
+
+    it("org のタイムスタンプ形式の #+DATE も暦日として解釈する", async () => {
+      const res = await req(createApp(), "POST", "/import", {
+        text: "#+DATE: <2020-01-05 Sun>\n* Day",
+      });
+      const data = await res.json();
+      expect(data.entryDate).toBe("2020-01-05");
+    });
+
+    it("同じ日付の日記が既にあれば 409 で拒否する", async () => {
+      seedMemo(db, { title: "Existing", entryDate: "2020-01-05" });
+      const res = await req(createApp(), "POST", "/import", {
+        text: "#+DATE: 2020-01-05\nbody",
+      });
+      expect(res.status).toBe(409);
+    });
+
+    it("未来の #+DATE は 400", async () => {
+      const res = await req(createApp(), "POST", "/import", {
+        text: "#+DATE: 2999-01-01\nbody",
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("#+DATE が暦日として解釈できない場合は通常メモとして取り込む", async () => {
+      const res = await req(createApp(), "POST", "/import", {
+        text: "#+TITLE: T\n#+DATE: someday",
+      });
+      expect(res.status).toBe(201);
+      const data = await res.json();
+      expect(data.entryDate).toBeNull();
+    });
   });
 
   // ── GET /memos/:id/export ─────────────────────────────
@@ -158,6 +209,43 @@ describe("import-export", () => {
       const disposition = res.headers.get("Content-Disposition");
       expect(disposition).toContain("filename=");
       expect(disposition).toContain("MyFile.org");
+    });
+
+    it("日記は #+DATE を付与し、ファイル名は日付ベースになる", async () => {
+      const memoId = seedMemo(db, {
+        title: "2020-01-05 (日)",
+        body: "* Day",
+        entryDate: "2020-01-05",
+      });
+      const res = await req(createApp(), "GET", `/memos/${memoId}/export`);
+      const text = await res.text();
+      expect(text).toContain("#+TITLE: 2020-01-05 (日)");
+      expect(text).toContain("#+DATE: 2020-01-05");
+      const disposition = res.headers.get("Content-Disposition");
+      expect(disposition).toContain("2020-01-05.org");
+    });
+
+    it("本文中の既存 #+DATE は置換する", async () => {
+      const memoId = seedMemo(db, {
+        title: "T",
+        body: "#+DATE: 1999-01-01\n* Day",
+        entryDate: "2020-01-05",
+      });
+      const res = await req(createApp(), "GET", `/memos/${memoId}/export`);
+      const text = await res.text();
+      expect(text).toContain("#+DATE: 2020-01-05");
+      expect(text).not.toContain("1999-01-01");
+    });
+
+    it("本文が 1 行だけ（改行なし）でも #+DATE は #+TITLE の後に付与する", async () => {
+      const memoId = seedMemo(db, {
+        title: "T",
+        body: "#+TITLE: T",
+        entryDate: "2020-01-05",
+      });
+      const res = await req(createApp(), "GET", `/memos/${memoId}/export`);
+      const text = await res.text();
+      expect(text.startsWith("#+TITLE: T\n#+DATE: 2020-01-05")).toBe(true);
     });
   });
 });

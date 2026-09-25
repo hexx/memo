@@ -26,6 +26,7 @@ export interface Memo {
   id: string;
   title: string;
   body: string;
+  entryDate: string | null;
   isPinned: number;
   isArchived: number;
   createdAt: string;
@@ -39,15 +40,19 @@ export interface Label {
 }
 
 // Memos
+// diary: "only" = 日記のみ、"exclude" = 日記以外（ホーム）、未指定 = すべて（アーカイブ画面）
 export const getMemos = (params?: {
   q?: string;
   label?: string;
   archived?: boolean;
+  diary?: "only" | "exclude";
 }) => {
   const sp = new URLSearchParams();
   if (params?.q) sp.set("q", params.q);
   if (params?.label) sp.set("label", params.label);
   if (params?.archived) sp.set("archived", "1");
+  if (params?.diary === "only") sp.set("diary", "1");
+  if (params?.diary === "exclude") sp.set("diary", "0");
   const qs = sp.toString();
   return request<Memo[]>(`/memos${qs ? `?${qs}` : ""}`);
 };
@@ -66,7 +71,12 @@ export const createMemo = (data: {
 
 export const updateMemo = (
   id: string,
-  data: { title: string; body: string; labelIds?: string[] }
+  data: {
+    title: string;
+    body: string;
+    labelIds?: string[];
+    entryDate?: string;
+  }
 ) =>
   request<{ ok: boolean }>(`/memos/${id}`, {
     method: "PUT",
@@ -87,6 +97,33 @@ export const togglePin = (id: string) =>
 
 export const toggleArchive = (id: string) =>
   request<{ isArchived: boolean }>(`/memos/${id}/archive`, { method: "PATCH" });
+
+// Diaries
+export const getDiaries = (params?: {
+  q?: string;
+  label?: string;
+  archived?: boolean;
+  date?: string;
+}) => {
+  const sp = new URLSearchParams();
+  if (params?.q) sp.set("q", params.q);
+  if (params?.label) sp.set("label", params.label);
+  if (params?.archived) sp.set("archived", "1");
+  if (params?.date) sp.set("date", params.date);
+  const qs = sp.toString();
+  return request<Memo[]>(`/diaries${qs ? `?${qs}` : ""}`);
+};
+
+export const createDiary = (data: {
+  title?: string;
+  body: string;
+  labelIds?: string[];
+  entryDate?: string;
+}) =>
+  request<{ id: string; entryDate: string; title: string }>("/diaries", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
 
 // Labels
 export const getLabels = () => request<Label[]>("/labels");
