@@ -75,7 +75,9 @@ function ArchiveMemoCard({
       <div className="flex-1 min-w-0">
         <p className="font-medium text-sm truncate">{memo.title}</p>
         <p className="text-xs text-muted-foreground mt-1">
-          {new Date(memo.updatedAt).toLocaleDateString("ja-JP")}
+          {memo.entryDate
+            ? `日記 ${memo.entryDate}`
+            : new Date(memo.updatedAt).toLocaleDateString("ja-JP")}
         </p>
       </div>
       <div className="flex gap-2 ml-4">

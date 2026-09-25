@@ -89,6 +89,18 @@ describe("memos", () => {
       expect(data[0].labels).toHaveLength(1);
       expect(data[0].labels[0].name).toBe("important");
     });
+
+    it("diary=0 で日記以外、diary=1 で日記のみを返す", async () => {
+      seedMemo(db, { title: "Plain" });
+      seedMemo(db, { title: "Diary", entryDate: "2020-01-05" });
+      const app = createApp();
+
+      const excluded = await req(app, "GET", "/?diary=0").then((r) => r.json());
+      expect(excluded.map((m: { title: string }) => m.title)).toEqual(["Plain"]);
+
+      const only = await req(app, "GET", "/?diary=1").then((r) => r.json());
+      expect(only.map((m: { title: string }) => m.title)).toEqual(["Diary"]);
+    });
   });
 
   // ── GET /:id ──────────────────────────────────────────
@@ -186,6 +198,78 @@ describe("memos", () => {
       const memo = await getRes.json();
       expect(memo.labels).toHaveLength(1);
       expect(memo.labels[0].name).toBe("b");
+    });
+
+    it("日付変更時、未編集のタイトル（旧既定値）は新日付へ追従する", async () => {
+      const id = seedMemo(db, {
+        title: "2020-01-05 (日)",
+        entryDate: "2020-01-05",
+      });
+      const res = await req(createApp(), "PUT", `/${id}`, {
+        body: "B",
+        entryDate: "2020-01-04",
+      });
+      expect(res.status).toBe(200);
+      const memo = await (await req(createApp(), "GET", `/${id}`)).json();
+      expect(memo.entryDate).toBe("2020-01-04");
+      expect(memo.title).toBe("2020-01-04 (土)");
+    });
+
+    it("編集済みのタイトルは日付変更でも保持される", async () => {
+      const id = seedMemo(db, { title: "旅行の記録", entryDate: "2020-01-05" });
+      await req(createApp(), "PUT", `/${id}`, {
+        body: "B",
+        entryDate: "2020-01-04",
+      });
+      const memo = await (await req(createApp(), "GET", `/${id}`)).json();
+      expect(memo.title).toBe("旅行の記録");
+    });
+
+    it("日記の空タイトルは日付の既定タイトルで再補完する", async () => {
+      const id = seedMemo(db, {
+        title: "2020-01-05 (日)",
+        entryDate: "2020-01-05",
+      });
+      await req(createApp(), "PUT", `/${id}`, { title: "", body: "B" });
+      const memo = await (await req(createApp(), "GET", `/${id}`)).json();
+      expect(memo.title).toBe("2020-01-05 (日)");
+    });
+
+    it("日記以外への entryDate 指定は 400（メモ→日記の変換は受け付けない）", async () => {
+      const id = seedMemo(db, { title: "Plain" });
+      const res = await req(createApp(), "PUT", `/${id}`, {
+        body: "B",
+        entryDate: "2020-01-05",
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("日付変更で同じ日付が既にあれば 409", async () => {
+      seedMemo(db, { title: "A", entryDate: "2020-01-05" });
+      const id = seedMemo(db, { title: "B", entryDate: "2020-01-04" });
+      const res = await req(createApp(), "PUT", `/${id}`, {
+        body: "B",
+        entryDate: "2020-01-05",
+      });
+      expect(res.status).toBe(409);
+    });
+
+    it("日記の日付変更で未来日は 400", async () => {
+      const id = seedMemo(db, { title: "d", entryDate: "2020-01-05" });
+      const res = await req(createApp(), "PUT", `/${id}`, {
+        body: "B",
+        entryDate: "2999-01-01",
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("entryDate が文字列でなければ 400", async () => {
+      const id = seedMemo(db, { title: "d", entryDate: "2020-01-05" });
+      const res = await req(createApp(), "PUT", `/${id}`, {
+        body: "B",
+        entryDate: 12345,
+      });
+      expect(res.status).toBe(400);
     });
 
     it("returns 404 when not found", async () => {

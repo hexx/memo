@@ -1,5 +1,5 @@
 import { createRootRoute, Outlet, Link } from "@tanstack/react-router";
-import { FileText, Archive, Tag } from "lucide-react";
+import { FileText, BookOpen, Archive, Tag } from "lucide-react";
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -20,6 +20,13 @@ function RootLayout() {
             >
               <FileText className="h-4 w-4" />
               メモ
+            </Link>
+            <Link
+              to="/diary"
+              className="flex items-center gap-1 hover:text-foreground transition-colors [&.active]:text-foreground [&.active]:font-semibold"
+            >
+              <BookOpen className="h-4 w-4" />
+              日記
             </Link>
             <Link
               to="/archive"

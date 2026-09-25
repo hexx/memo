@@ -13,11 +13,14 @@ export function createTestDb() {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       body TEXT NOT NULL,
+      entry_date TEXT,
       is_pinned INTEGER NOT NULL DEFAULT 0,
       is_archived INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE UNIQUE INDEX memos_entry_date_unique ON memos(entry_date);
 
     CREATE TABLE labels (
       id TEXT PRIMARY KEY,
@@ -41,6 +44,7 @@ export function seedMemo(
     id: string;
     title: string;
     body: string;
+    entryDate: string | null;
     isPinned: number;
     isArchived: number;
   }> = {}
@@ -51,6 +55,7 @@ export function seedMemo(
     id,
     title: overrides.title ?? "Test Memo",
     body: overrides.body ?? "Body content",
+    entryDate: overrides.entryDate ?? null,
     isPinned: overrides.isPinned ?? 0,
     isArchived: overrides.isArchived ?? 0,
     createdAt: now,

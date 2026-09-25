@@ -27,6 +27,8 @@ vi.mock("@/lib/api", () => ({
   deleteLabel: vi.fn(),
   importOrgText: vi.fn(),
   importOrgFile: vi.fn(),
+  getDiaries: vi.fn(),
+  createDiary: vi.fn(),
   getExportUrl: (id: string) => `/api/memos/${id}/export`,
 }));
 
@@ -39,6 +41,7 @@ function memo(overrides: Partial<Memo> = {}): Memo {
     id: "a1",
     title: "Archived Memo",
     body: "archived body",
+    entryDate: null,
     isPinned: 0,
     isArchived: 1,
     createdAt: "2026-01-01T00:00:00.000Z",

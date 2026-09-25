@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ArchiveRouteImport } from './routes/archive'
+import { Route as DiaryRouteImport } from './routes/diary'
 import { Route as LabelsRouteImport } from './routes/labels'
 import { Route as MemosMemoIdRouteImport } from './routes/memos/$memoId'
 
@@ -22,6 +23,11 @@ const IndexRoute = IndexRouteImport.update({
 const ArchiveRoute = ArchiveRouteImport.update({
   id: '/archive',
   path: '/archive',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DiaryRoute = DiaryRouteImport.update({
+  id: '/diary',
+  path: '/diary',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LabelsRoute = LabelsRouteImport.update({
@@ -38,12 +44,14 @@ const MemosMemoIdRoute = MemosMemoIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/archive': typeof ArchiveRoute
+  '/diary': typeof DiaryRoute
   '/labels': typeof LabelsRoute
   '/memos/$memoId': typeof MemosMemoIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/archive': typeof ArchiveRoute
+  '/diary': typeof DiaryRoute
   '/labels': typeof LabelsRoute
   '/memos/$memoId': typeof MemosMemoIdRoute
 }
@@ -51,20 +59,22 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/archive': typeof ArchiveRoute
+  '/diary': typeof DiaryRoute
   '/labels': typeof LabelsRoute
   '/memos/$memoId': typeof MemosMemoIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/archive' | '/labels' | '/memos/$memoId'
+  fullPaths: '/' | '/archive' | '/diary' | '/labels' | '/memos/$memoId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/archive' | '/labels' | '/memos/$memoId'
-  id: '__root__' | '/' | '/archive' | '/labels' | '/memos/$memoId'
+  to: '/' | '/archive' | '/diary' | '/labels' | '/memos/$memoId'
+  id: '__root__' | '/' | '/archive' | '/diary' | '/labels' | '/memos/$memoId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ArchiveRoute: typeof ArchiveRoute
+  DiaryRoute: typeof DiaryRoute
   LabelsRoute: typeof LabelsRoute
   MemosMemoIdRoute: typeof MemosMemoIdRoute
 }
@@ -83,6 +93,13 @@ declare module '@tanstack/react-router' {
       path: '/archive'
       fullPath: '/archive'
       preLoaderRoute: typeof ArchiveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/diary': {
+      id: '/diary'
+      path: '/diary'
+      fullPath: '/diary'
+      preLoaderRoute: typeof DiaryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/labels': {
@@ -105,6 +122,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ArchiveRoute: ArchiveRoute,
+  DiaryRoute: DiaryRoute,
   LabelsRoute: LabelsRoute,
   MemosMemoIdRoute: MemosMemoIdRoute,
 }

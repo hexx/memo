@@ -21,8 +21,12 @@ function MemoEditPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: { title: string; body: string; labelIds?: string[] }) =>
-      updateMemo(memoId, data),
+    mutationFn: (data: {
+      title: string;
+      body: string;
+      labelIds?: string[];
+      entryDate?: string;
+    }) => updateMemo(memoId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["memos"] });
       queryClient.invalidateQueries({ queryKey: ["memo", memoId] });
@@ -34,7 +38,8 @@ function MemoEditPage() {
     mutationFn: () => deleteMemo(memoId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["memos"] });
-      navigate({ to: "/" });
+      // 日記は日記ビューへ戻す（通常メモはホーム）
+      navigate({ to: memo?.entryDate ? "/diary" : "/" });
     },
     onError: (err) => alert(err instanceof Error ? err.message : "削除に失敗しました"),
   });
@@ -46,7 +51,10 @@ function MemoEditPage() {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-4">
-        <Button variant="ghost" onClick={() => navigate({ to: "/" })}>
+        <Button
+          variant="ghost"
+          onClick={() => navigate({ to: memo.entryDate ? "/diary" : "/" })}
+        >
           ← 戻る
         </Button>
         <Button
@@ -64,6 +72,7 @@ function MemoEditPage() {
           削除時のみ onSuccess でホームへ遷移する。保存後コールバックは新規作成経路専用のためここでは渡さない。 */}
       <MemoEditor
         initialMemo={memo}
+        isDiary={memo.entryDate !== null}
         saving={updateMutation.isPending}
         onSave={(data) => updateMutation.mutate(data)}
       />

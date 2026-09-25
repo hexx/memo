@@ -45,8 +45,13 @@ function HomePage() {
   const [importText, setImportText] = useState("");
 
   const { data: memos, isLoading } = useQuery({
-    queryKey: ["memos", { q: search, label: selectedLabel }],
-    queryFn: () => getMemos({ q: search || undefined, label: selectedLabel }),
+    queryKey: ["memos", { q: search, label: selectedLabel, diary: "exclude" }],
+    queryFn: () =>
+      getMemos({
+        q: search || undefined,
+        label: selectedLabel,
+        diary: "exclude",
+      }),
   });
 
   const { data: labels } = useQuery({

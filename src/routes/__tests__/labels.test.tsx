@@ -22,6 +22,8 @@ vi.mock("@/lib/api", () => ({
   deleteLabel: vi.fn(),
   importOrgText: vi.fn(),
   importOrgFile: vi.fn(),
+  getDiaries: vi.fn(),
+  createDiary: vi.fn(),
   getExportUrl: (id: string) => `/api/memos/${id}/export`,
 }));
 
