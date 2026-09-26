@@ -1,5 +1,7 @@
 # ビルド/デプロイ警告への対応方針：無害なものは許容し、将来壊れるものは即修正する
 
+> **注（2026-09-26）**: 決定「要確認 5（`database_id`）」の「実 UUID はリポジトリに記載せず `database_id = "local"` のままとする」は、本番反映の Cloudflare Workers Builds への一本化に伴い ADR 0012 で覆した。
+
 ## Status
 
 Accepted（2026-07-25、`wrangler deploy` の出力レビュー時）

@@ -137,12 +137,15 @@ npm test
 
 ## デプロイ
 
-```bash
-# ビルド
-npm run build
+本番反映は **main へのマージで自動的に行われます**。Cloudflare Workers Builds がビルドし、D1 マイグレーションの適用 → デプロイまでを実行します。リポジトリ外の設定値（ダッシュボードの build / deploy command、API トークン等）の写しとロールバック手順は [`docs/specs/deploy.md`](docs/specs/deploy.md) を参照してください。
 
-# Cloudflare Workers にデプロイ
-npm run deploy
+1. PR を作成し、CI（Lint / Test / Build）が緑になるのを待つ
+2. main にマージ → Workers Builds が自動で本番反映
+
+手元から `npm run deploy` を実行しても、事故防止のガード（`scripts/deploy-guard.mjs`）により中止されます。緊急時のみ次のように実行し、**実行後は `git revert` で追いつかせてください**。
+
+```bash
+npm run build && ALLOW_LOCAL_DEPLOY=1 npm run deploy
 ```
 
 ## タイトルの自動生成（AI）

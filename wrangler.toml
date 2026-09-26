@@ -2,6 +2,8 @@ name = "org-memo"
 main = "src/server/index.ts"
 compatibility_date = "2024-10-01"
 compatibility_flags = ["nodejs_compat"]
+# デプロイ先アカウント。識別子であり秘匿値ではない（ADR 0012）。
+account_id = "f9992c5557a4b6f6a85c6f4220d19f07"
 
 # AI によるタイトル自動生成（OpenAI 互換エンドポイント / @earendil-works/pi-ai）
 # - AI_BASE_URL / AI_MODEL は非機密の設定値
@@ -14,13 +16,13 @@ AI_MODEL = "deepseek-v4-flash"
 [[d1_databases]]
 binding = "DB"
 database_name = "org-memo-db"
-# 本番の実 UUID はリポジトリに記載しない方針（ADR 0008 参照）。
-# 注意: "local" はローカル開発専用。wrangler deploy は database_id をそのまま送信するため、
-# 本番デプロイ時はローカルで実 UUID を記載してから実行すること（コミットしない）。
-database_id = "local"
+# 本番 D1 の実 UUID。識別子であり秘匿値ではない（ADR 0012）。
+# Workers Builds の `d1 migrations apply --remote` と `wrangler deploy` がこの値を使う。
+database_id = "bf349073-5d54-4c28-b2f7-0b54b3c0088c"
 
 [assets]
 directory = "./dist/client"
 
-[build]
-command = "npm run build"
+# ビルドは Workers Builds の build command（npm run build）が行う。
+# ここに [build] を置くと wrangler deploy がもう一度ビルドする（二重ビルド）ため置かない。
+# 手元から緊急反映する場合も `npm run build` を先に実行する（scripts/deploy-guard.mjs 参照）。
