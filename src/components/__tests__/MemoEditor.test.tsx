@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
 //
-// MemoEditor の「契約」を測る（ADR 0006）:
+// MemoEditor の「契約」を測る（ADR 0006 / ADR 0013）:
 // - 作成契約（title/body/labelIds が渡る）
 // - 実 TipTap を経由した org ラウンドトリップ
 // - 自動タイトルの 3 分岐（成功 / null / throw、いずれもブロックしない）
 // - ラベル配線（トグル・その場作成→自動選択）
 // - リンクのスキーマサニタイズ（XSS 防止）
+// - オートセーブ（デバウンス・状態表示・タイトルの扱い・新規作成の意味論）
 // ツールバーの各マーク操作（TipTap 本体）は測らない。
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -18,6 +19,7 @@ import {
   createLabel,
   createMemo,
   createDiary,
+  updateMemo,
   generateTitle,
   type Memo,
 } from "@/lib/api";
@@ -29,6 +31,7 @@ vi.mock("@/lib/api", () => ({
   createLabel: vi.fn(),
   createMemo: vi.fn(),
   createDiary: vi.fn(),
+  updateMemo: vi.fn(),
   generateTitle: vi.fn(),
 }));
 
@@ -36,6 +39,7 @@ const mockedGetLabels = vi.mocked(getLabels);
 const mockedCreateLabel = vi.mocked(createLabel);
 const mockedCreateMemo = vi.mocked(createMemo);
 const mockedCreateDiary = vi.mocked(createDiary);
+const mockedUpdateMemo = vi.mocked(updateMemo);
 const mockedGenerateTitle = vi.mocked(generateTitle);
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -78,6 +82,7 @@ beforeEach(() => {
     entryDate: "2020-01-05",
     title: "2020-01-05 (日)",
   });
+  mockedUpdateMemo.mockResolvedValue({ ok: true });
   // jsdom の alert は未実装のため、必ずモックしてから操作する
   alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
 });
@@ -105,7 +110,7 @@ describe("作成契約", () => {
         title: "New Memo",
         body: "",
         labelIds: [],
-      });
+      }, undefined);
     });
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
@@ -114,19 +119,20 @@ describe("作成契約", () => {
 describe("org ラウンドトリップ（実 TipTap 経由）", () => {
   it("initialMemo の org 本文がエディタを経由して保存時に org に戻る", async () => {
     const user = userEvent.setup();
-    const onSave = vi.fn();
     const body = "* Heading\n- item one\n- item two\n\nSome *bold* text";
-    render(<MemoEditor initialMemo={makeMemo({ body })} onSave={onSave} />, {
-      wrapper,
-    });
+    render(<MemoEditor initialMemo={makeMemo({ body })} />, { wrapper });
 
     // 実エディタがマウントされるのを待つ（aria-label="メモ本文"）
     await screen.findByLabelText("メモ本文");
+    // 変更が無いと保存しないので、タイトルだけ変えて保存を起こす
+    fireEvent.change(screen.getByDisplayValue("Existing"), {
+      target: { value: "Renamed" },
+    });
     await user.click(getSaveButton());
 
-    await waitFor(() => expect(onSave).toHaveBeenCalled());
-    const saved = onSave.mock.calls[0][0];
-    expect(saved.title).toBe("Existing");
+    await waitFor(() => expect(mockedUpdateMemo).toHaveBeenCalled());
+    const [, saved] = mockedUpdateMemo.mock.calls[0]!;
+    expect(saved.title).toBe("Renamed");
     // 見出し・リスト・太字が org 記法として保持されている
     expect(saved.body).toContain("* Heading");
     expect(saved.body).toContain("- item one");
@@ -190,39 +196,33 @@ describe("自動タイトル", () => {
 describe("ラベル配線", () => {
   it("badge クリックで選択がトグルし、保存時の labelIds に反映される", async () => {
     const user = userEvent.setup();
-    const onSave = vi.fn();
     mockedGetLabels.mockResolvedValue([
       { id: "l1", name: "work" },
       { id: "l2", name: "private" },
     ]);
-    render(
-      <MemoEditor initialMemo={makeMemo()} onSave={onSave} />,
-      { wrapper }
-    );
+    render(<MemoEditor initialMemo={makeMemo()} />, { wrapper });
 
     const work = await screen.findByText("work");
     await user.click(work);
+    mockedUpdateMemo.mockClear();
     await user.click(getSaveButton());
 
-    await waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave.mock.calls[0][0].labelIds).toEqual(["l1"]);
+    await waitFor(() => expect(mockedUpdateMemo).toHaveBeenCalled());
+    expect(mockedUpdateMemo.mock.calls[0]![1].labelIds).toEqual(["l1"]);
 
     // もう一度クリックすると解除される
-    onSave.mockClear();
+    mockedUpdateMemo.mockClear();
     await user.click(work);
     await user.click(getSaveButton());
-    await waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave.mock.calls[0][0].labelIds).toEqual([]);
+    await waitFor(() => expect(mockedUpdateMemo).toHaveBeenCalled());
+    expect(mockedUpdateMemo.mock.calls[0]![1].labelIds).toEqual([]);
   });
 
   it("その場で新規ラベルを作成すると自動で選択される", async () => {
     const user = userEvent.setup();
-    const onSave = vi.fn();
     mockedGetLabels.mockResolvedValue([]);
     mockedCreateLabel.mockResolvedValue({ id: "l3", name: "new-label" });
-    render(<MemoEditor initialMemo={makeMemo()} onSave={onSave} />, {
-      wrapper,
-    });
+    render(<MemoEditor initialMemo={makeMemo()} />, { wrapper });
 
     await user.type(
       screen.getByPlaceholderText("新しいラベル名"),
@@ -236,9 +236,10 @@ describe("ラベル配線", () => {
       expect(screen.getByPlaceholderText("新しいラベル名")).toHaveValue("")
     );
     // 作成したラベル（l3）はクリックせずとも自動選択状態で保存される
+    mockedUpdateMemo.mockClear();
     await user.click(getSaveButton());
-    await waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave.mock.calls[0][0].labelIds).toEqual(["l3"]);
+    await waitFor(() => expect(mockedUpdateMemo).toHaveBeenCalled());
+    expect(mockedUpdateMemo.mock.calls[0]![1].labelIds).toEqual(["l3"]);
   });
 });
 
@@ -350,7 +351,7 @@ describe("日記モード", () => {
         body: "",
         labelIds: [],
         entryDate: "2020-01-05",
-      })
+      }, undefined)
     );
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
@@ -369,7 +370,172 @@ describe("日記モード", () => {
         body: "",
         labelIds: [],
         entryDate: "2020-01-05",
-      })
+      }, undefined)
     );
+  });
+});
+
+describe("オートセーブ（ADR 0013）", () => {
+  // TipTap のマウントは実タイマーで待ち、デバウンスの検証だけ fake timers で行う
+  async function renderForAutosave(element: ReactNode) {
+    render(element, { wrapper });
+    await screen.findByLabelText("メモ本文");
+  }
+
+  async function advance(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("開いただけでは保存しない", async () => {
+    await renderForAutosave(<MemoEditor initialMemo={makeMemo()} />);
+    vi.useFakeTimers();
+
+    await advance(5000);
+
+    expect(mockedUpdateMemo).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("保存済み");
+  });
+
+  it("変更を検知して 1 秒後に保存し、状態表示が保存中…から保存済みになる", async () => {
+    await renderForAutosave(<MemoEditor initialMemo={makeMemo()} />);
+    vi.useFakeTimers();
+
+    fireEvent.change(screen.getByDisplayValue("Existing"), {
+      target: { value: "Changed" },
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("保存中…");
+    expect(mockedUpdateMemo).not.toHaveBeenCalled();
+
+    await advance(1000);
+
+    expect(mockedUpdateMemo).toHaveBeenCalledWith(
+      "m1",
+      expect.objectContaining({ title: "Changed" }),
+      undefined
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("保存済み");
+  });
+
+  it("タイトルを空にすると title を送らず、placeholder に既存タイトルを出す", async () => {
+    await renderForAutosave(<MemoEditor initialMemo={makeMemo()} />);
+    vi.useFakeTimers();
+
+    fireEvent.change(screen.getByDisplayValue("Existing"), {
+      target: { value: "" },
+    });
+    expect(screen.getByPlaceholderText("Existing")).toBeInTheDocument();
+
+    await advance(1000);
+
+    const [, saved] = mockedUpdateMemo.mock.calls[0]!;
+    expect(saved).not.toHaveProperty("title");
+    expect(saved.body).toBe("plain body");
+  });
+
+  it("失敗すると保存に失敗（再試行）を出し、押すと再送する", async () => {
+    mockedUpdateMemo.mockRejectedValueOnce(new Error("network error"));
+    await renderForAutosave(<MemoEditor initialMemo={makeMemo()} />);
+    vi.useFakeTimers();
+
+    fireEvent.change(screen.getByDisplayValue("Existing"), {
+      target: { value: "Changed" },
+    });
+    await advance(1000);
+
+    const retry = screen.getByRole("button", { name: "保存に失敗（再試行）" });
+    fireEvent.click(retry);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockedUpdateMemo).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("status")).toHaveTextContent("保存済み");
+  });
+
+  it("新規メモは内容が入るまで作成せず、入ったら POST してボタンが保存に変わる", async () => {
+    await renderForAutosave(<MemoEditor />);
+    vi.useFakeTimers();
+
+    await advance(5000);
+    expect(mockedCreateMemo).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByPlaceholderText("タイトル（1行目）"), {
+      target: { value: "New Memo" },
+    });
+    await advance(1000);
+
+    expect(mockedCreateMemo).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "New Memo" }),
+      undefined
+    );
+    expect(getSaveButton()).toHaveTextContent("保存");
+  });
+
+  it("新規メモでタイトルが空でも本文の先頭行を暫定タイトルとして送る", async () => {
+    const user = userEvent.setup();
+    await renderForAutosave(<MemoEditor />);
+
+    // TipTap への入力は実タイマーで行い、1 秒のデバウンス後に保存されるのを待つ
+    const editorEl = screen.getByLabelText("メモ本文");
+    await user.click(editorEl);
+    await user.type(editorEl, "body first line");
+
+    await waitFor(
+      () =>
+        expect(mockedCreateMemo).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "body first line" }),
+          undefined
+        ),
+      { timeout: 3000 }
+    );
+  });
+
+  it("新規メモは作成後に内容を空にしても保存する", async () => {
+    await renderForAutosave(<MemoEditor />);
+    vi.useFakeTimers();
+
+    fireEvent.change(screen.getByPlaceholderText("タイトル（1行目）"), {
+      target: { value: "New Memo" },
+    });
+    await advance(1000);
+    expect(mockedCreateMemo).toHaveBeenCalledTimes(1);
+
+    mockedUpdateMemo.mockClear();
+    fireEvent.change(screen.getByDisplayValue("New Memo"), {
+      target: { value: "" },
+    });
+    await advance(1000);
+
+    expect(mockedUpdateMemo).toHaveBeenCalledWith(
+      "new-id",
+      expect.objectContaining({ body: "" }),
+      undefined
+    );
+  });
+
+  it("日記の保存失敗は onSaveError に draft 付きで渡す", async () => {
+    const user = userEvent.setup();
+    const onSaveError = vi.fn();
+    mockedCreateDiary.mockRejectedValueOnce(
+      new Error("Diary already exists for this date")
+    );
+    render(
+      <MemoEditor isDiary initialEntryDate="2020-01-05" onSaveError={onSaveError} />,
+      { wrapper }
+    );
+    await screen.findByLabelText("日付");
+
+    await user.click(getSaveButton());
+
+    await waitFor(() => expect(onSaveError).toHaveBeenCalled());
+    const [error, draft] = onSaveError.mock.calls[0]!;
+    expect((error as Error).message).toContain("already exists");
+    expect(draft).toMatchObject({ entryDate: "2020-01-05" });
   });
 });

@@ -1,5 +1,10 @@
 const API_BASE = "/api";
 
+/** 保存時の文脈。ページ離脱時のみ keepalive を使う（ボディに 64KiB の上限がある） */
+export interface SaveContext {
+  keepalive?: boolean;
+}
+
 async function request<T>(
   path: string,
   options?: RequestInit
@@ -59,28 +64,34 @@ export const getMemos = (params?: {
 
 export const getMemo = (id: string) => request<Memo>(`/memos/${id}`);
 
-export const createMemo = (data: {
-  title: string;
-  body: string;
-  labelIds?: string[];
-}) =>
+export const createMemo = (
+  data: {
+    title: string;
+    body: string;
+    labelIds?: string[];
+  },
+  context?: SaveContext
+) =>
   request<{ id: string }>("/memos", {
     method: "POST",
     body: JSON.stringify(data),
+    keepalive: context?.keepalive,
   });
 
 export const updateMemo = (
   id: string,
   data: {
-    title: string;
+    title?: string;
     body: string;
     labelIds?: string[];
     entryDate?: string;
-  }
+  },
+  context?: SaveContext
 ) =>
   request<{ ok: boolean }>(`/memos/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
+    keepalive: context?.keepalive,
   });
 
 export const deleteMemo = (id: string) =>
@@ -114,15 +125,19 @@ export const getDiaries = (params?: {
   return request<Memo[]>(`/diaries${qs ? `?${qs}` : ""}`);
 };
 
-export const createDiary = (data: {
-  title?: string;
-  body: string;
-  labelIds?: string[];
-  entryDate?: string;
-}) =>
+export const createDiary = (
+  data: {
+    title?: string;
+    body: string;
+    labelIds?: string[];
+    entryDate?: string;
+  },
+  context?: SaveContext
+) =>
   request<{ id: string; entryDate: string; title: string }>("/diaries", {
     method: "POST",
     body: JSON.stringify(data),
+    keepalive: context?.keepalive,
   });
 
 // Labels

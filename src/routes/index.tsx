@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   getMemos,
   getLabels,
@@ -28,7 +28,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MemoEditor } from "@/components/MemoEditor";
+import { MemoEditor, type MemoEditorHandle } from "@/components/MemoEditor";
 import { Plus, Search, Pin, Archive, Trash2, MoreVertical, Upload, FileDown } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
@@ -43,6 +43,31 @@ function HomePage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
+  const editorRef = useRef<MemoEditorHandle>(null);
+
+  // 新規メモのダイアログを閉じる。内容が入った時点で自動保存によりメモが作られているため、
+  // 閉じることは破棄ではなく保存を意味する（ADR 0013）。
+  // 保留分を送ってから閉じ、保存できなかったときだけ破棄の確認を出す。
+  const closeCreateDialog = async () => {
+    const editor = editorRef.current;
+    if (editor) {
+      const ok = await editor.flush();
+      if (!ok) {
+        if (!confirm("保存できていません。破棄しますか？")) return;
+        editor.cancel();
+      }
+    }
+    setCreateOpen(false);
+    queryClient.invalidateQueries({ queryKey: ["memos"] });
+  };
+
+  // 画面（作成ダイアログを含む）を離れるときに一覧を更新する
+  useEffect(
+    () => () => {
+      queryClient.invalidateQueries({ queryKey: ["memos"] });
+    },
+    [queryClient]
+  );
 
   const { data: memos, isLoading } = useQuery({
     queryKey: ["memos", { q: search, label: selectedLabel, diary: "exclude" }],
@@ -182,7 +207,13 @@ function HomePage() {
             </DialogContent>
           </Dialog>
 
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+          <Dialog
+            open={createOpen}
+            onOpenChange={(open) => {
+              if (open) setCreateOpen(true);
+              else void closeCreateDialog();
+            }}
+          >
             <DialogTrigger asChild>
               <Button size="sm">
                 <Plus className="h-4 w-4 mr-1" />
@@ -193,12 +224,7 @@ function HomePage() {
               <DialogHeader>
                 <DialogTitle>新規メモ</DialogTitle>
               </DialogHeader>
-              <MemoEditor
-                onSaved={() => {
-                  setCreateOpen(false);
-                  queryClient.invalidateQueries({ queryKey: ["memos"] });
-                }}
-              />
+              <MemoEditor ref={editorRef} onSaved={closeCreateDialog} />
             </DialogContent>
           </Dialog>
         </div>

@@ -9,6 +9,7 @@ import { renderApp } from "./test-utils";
 import {
   getMemos,
   getLabels,
+  createMemo,
   deleteMemo,
   togglePin,
   importOrgText,
@@ -38,6 +39,7 @@ vi.mock("@/lib/api", () => ({
 
 const mockedGetMemos = vi.mocked(getMemos);
 const mockedGetLabels = vi.mocked(getLabels);
+const mockedCreateMemo = vi.mocked(createMemo);
 const mockedDeleteMemo = vi.mocked(deleteMemo);
 const mockedTogglePin = vi.mocked(togglePin);
 const mockedImportOrgText = vi.mocked(importOrgText);
@@ -62,6 +64,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockedGetMemos.mockResolvedValue([]);
   mockedGetLabels.mockResolvedValue([]);
+  mockedCreateMemo.mockResolvedValue({ id: "new-id" });
   mockedDeleteMemo.mockResolvedValue({ ok: true });
   mockedTogglePin.mockResolvedValue({ isPinned: true });
   mockedImportOrgText.mockResolvedValue({ id: "i1", title: "T", labelCount: 0 });
@@ -231,5 +234,53 @@ describe("作成ダイアログ", () => {
     expect(
       within(dialog).getByPlaceholderText("タイトル（1行目）")
     ).toBeInTheDocument();
+  });
+
+  it("初回保存が未成功のまま閉じると破棄の確認を出し、キャンセルすると開いたままにする", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    mockedCreateMemo.mockRejectedValue(new Error("network error"));
+    renderApp("/");
+    await screen.findByText(/メモがありません/);
+
+    await user.click(screen.getByRole("button", { name: "新規メモ" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByPlaceholderText("タイトル（1行目）"),
+      "draft"
+    );
+
+    // オートセーブの 1 秒後に保存が走り、失敗するのを待つ
+    await waitFor(() => expect(mockedCreateMemo).toHaveBeenCalled(), {
+      timeout: 3000,
+    });
+    await within(dialog).findByRole("button", { name: "保存に失敗（再試行）" });
+
+    await user.keyboard("{Escape}");
+
+    expect(confirmSpy).toHaveBeenCalledWith("保存できていません。破棄しますか？");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("初回保存が成功していれば確認なしで閉じる", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderApp("/");
+    await screen.findByText(/メモがありません/);
+
+    await user.click(screen.getByRole("button", { name: "新規メモ" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByPlaceholderText("タイトル（1行目）"),
+      "saved"
+    );
+    await waitFor(() => expect(mockedCreateMemo).toHaveBeenCalled(), {
+      timeout: 3000,
+    });
+
+    await user.keyboard("{Escape}");
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 });
