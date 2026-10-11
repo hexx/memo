@@ -519,6 +519,36 @@ describe("オートセーブ（ADR 0013）", () => {
     );
   });
 
+  it("作成中に保存ボタンを押しても二重に作成しない", async () => {
+    const user = userEvent.setup();
+    let resolveCreate: ((value: { id: string }) => void) | undefined;
+    mockedCreateMemo.mockImplementation(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveCreate = resolve;
+        })
+    );
+    render(<MemoEditor />, { wrapper });
+    await screen.findByPlaceholderText("タイトル（1行目）");
+
+    await user.type(
+      screen.getByPlaceholderText("タイトル（1行目）"),
+      "New Memo"
+    );
+    await waitFor(() => expect(mockedCreateMemo).toHaveBeenCalledTimes(1), {
+      timeout: 3000,
+    });
+
+    // 実行中の作成を待つだけで、二重に POST しない
+    await user.click(getSaveButton());
+    expect(mockedCreateMemo).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveCreate?.({ id: "new-id" });
+    });
+    expect(mockedCreateMemo).toHaveBeenCalledTimes(1);
+  });
+
   it("日記の保存失敗は onSaveError に draft 付きで渡す", async () => {
     const user = userEvent.setup();
     const onSaveError = vi.fn();

@@ -288,8 +288,14 @@ export function MemoEditor({
 
   // 明示的な保存。保留分を送り終えてから onSaved（ダイアログを閉じる等）を呼ぶ。
   // 失敗したときは画面に留まり、保存状態の表示に失敗を出す。
+  // - allowDisabled: 明示操作なので、自動保存の対象外（日付だけ変えた新規日記など）でも保存する
+  // - force: 変更が無く、かつ未作成のとき（空の日記を作る）だけ使う。
+  //   変更がある場合は通常の flush で足り、実行中の作成を二重に送らない。
   const handleSave = async () => {
-    const ok = await autosave.flush({ force: !persistedRef.current });
+    const ok = await autosave.flush({
+      allowDisabled: true,
+      force: !persistedRef.current && !autosave.hasUnsavedChanges(),
+    });
     if (ok) onSaved?.();
   };
 

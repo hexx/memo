@@ -218,8 +218,8 @@ describe("flush", () => {
     expect(save).toHaveBeenCalledWith({ v: 1 });
   });
 
-  it("enabled が false なら自動保存しないが force では保存できる", async () => {
-    const save = vi.fn().mockResolvedValue(undefined);
+  it("enabled が false なら自動保存しないが、明示的な flush では保存できる", async () => {
+    const save = vi.fn<SaveFn>().mockResolvedValue(undefined);
     const { result, rerender } = setup(save);
 
     rerender({ value: { v: 2 }, enabled: false });
@@ -227,7 +227,7 @@ describe("flush", () => {
     expect(save).not.toHaveBeenCalled();
 
     await act(async () => {
-      await result.current.flush({ force: true });
+      await result.current.flush({ force: true, allowDisabled: true });
     });
     expect(save).toHaveBeenCalledWith({ v: 2 });
   });
@@ -294,6 +294,30 @@ describe("離脱時", () => {
     expect(save).toHaveBeenCalledTimes(2);
   });
 
+  it("保存中は pagehide でも二重送信しない", async () => {
+    const resolvers: Array<() => void> = [];
+    const save = vi.fn<SaveFn>(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+    const { rerender } = setup(save);
+
+    rerender({ value: { v: 2 } });
+    await advance(1000);
+    expect(save).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolvers[0]!();
+    });
+  });
+
   it("アンマウント時に保留分を送る", async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const { rerender, unmount } = setup(save);
@@ -346,6 +370,24 @@ describe("離脱時", () => {
     });
     await pending;
     expect(cancelled).toBe(true);
+  });
+
+  it("cancel 後の flush は保存しない", async () => {
+    const save = vi.fn<SaveFn>().mockResolvedValue(undefined);
+    const { result, rerender } = setup(save);
+
+    rerender({ value: { v: 2 } });
+    await act(async () => {
+      await result.current.cancel();
+    });
+
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.flush();
+    });
+
+    expect(ok).toBe(false);
+    expect(save).not.toHaveBeenCalled();
   });
 });
 

@@ -44,6 +44,8 @@ function DiaryPage() {
   const [createOpen, setCreateOpen] = useState(false);
   // 日付が重複したときに「既存の日記を開く」導線を出すための id
   const [duplicateDiaryId, setDuplicateDiaryId] = useState<string | null>(null);
+  // ダイアログの閉じ処理の多重実行を防ぐ
+  const closingRef = useRef(false);
   const editorRef = useRef<MemoEditorHandle>(null);
   // アンマウント時は editorRef が null になっているため、ハンドルを別に保持する
   const handleRef = useRef<MemoEditorHandle>(null);
@@ -94,22 +96,28 @@ function DiaryPage() {
   }, []);
 
   const closeCreateDialog = async () => {
-    const editor = editorRef.current;
-    if (editor) {
-      const ok = await editor.flush();
-      if (!ok) {
-        if (!confirm("保存できていません。破棄しますか？")) return;
-        await editor.cancel();
+    if (closingRef.current) return;
+    closingRef.current = true;
+    try {
+      const editor = editorRef.current;
+      if (editor) {
+        const ok = await editor.flush();
+        if (!ok) {
+          if (!confirm("保存できていません。破棄しますか？")) return;
+          await editor.cancel();
+        }
       }
+      setCreateOpen(false);
+      setDuplicateDiaryId(null);
+      invalidateMemos();
+    } finally {
+      closingRef.current = false;
     }
-    setCreateOpen(false);
-    setDuplicateDiaryId(null);
-    invalidateMemos();
   };
 
-  const openDuplicateDiary = () => {
+  const openDuplicateDiary = async () => {
     if (!duplicateDiaryId) return;
-    void editorRef.current?.cancel();
+    await editorRef.current?.cancel();
     setCreateOpen(false);
     setDuplicateDiaryId(null);
     navigate({ to: "/memos/$memoId", params: { memoId: duplicateDiaryId } });
@@ -117,10 +125,12 @@ function DiaryPage() {
 
   // 画面（作成ダイアログを含む）を離れるときは、保留分を送り終えてから一覧を更新する
   // （送信の完了を待たずに invalidate すると、古い内容で再取得してしまう）。
+  // 保存できなかったとき（破棄・失敗）はサーバーが古いままなので invalidate しない。
   useEffect(
     () => () => {
       const settled = handleRef.current?.flush() ?? Promise.resolve(true);
-      void settled.finally(() => {
+      void settled.then((ok) => {
+        if (!ok) return;
         queryClient.invalidateQueries({ queryKey: ["memos"] });
       });
     },

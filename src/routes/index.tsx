@@ -54,25 +54,35 @@ function HomePage() {
   // 新規メモのダイアログを閉じる。内容が入った時点で自動保存によりメモが作られているため、
   // 閉じることは破棄ではなく保存を意味する（ADR 0013）。
   // 保留分を送ってから閉じ、保存できなかったときだけ破棄の確認を出す。
+  // 保存と onOpenChange の両方から呼ばれうるため、多重実行を防ぐ。
+  const closingRef = useRef(false);
   const closeCreateDialog = async () => {
-    const editor = editorRef.current;
-    if (editor) {
-      const ok = await editor.flush();
-      if (!ok) {
-        if (!confirm("保存できていません。破棄しますか？")) return;
-        await editor.cancel();
+    if (closingRef.current) return;
+    closingRef.current = true;
+    try {
+      const editor = editorRef.current;
+      if (editor) {
+        const ok = await editor.flush();
+        if (!ok) {
+          if (!confirm("保存できていません。破棄しますか？")) return;
+          await editor.cancel();
+        }
       }
+      setCreateOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["memos"] });
+    } finally {
+      closingRef.current = false;
     }
-    setCreateOpen(false);
-    queryClient.invalidateQueries({ queryKey: ["memos"] });
   };
 
   // 画面（作成ダイアログを含む）を離れるときは、保留分を送り終えてから一覧を更新する
   // （送信の完了を待たずに invalidate すると、古い内容で再取得してしまう）。
+  // 保存できなかったとき（破棄・失敗）はサーバーが古いままなので invalidate しない。
   useEffect(
     () => () => {
       const settled = handleRef.current?.flush() ?? Promise.resolve(true);
-      void settled.finally(() => {
+      void settled.then((ok) => {
+        if (!ok) return;
         queryClient.invalidateQueries({ queryKey: ["memos"] });
       });
     },

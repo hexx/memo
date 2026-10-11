@@ -40,10 +40,12 @@ function MemoEditPage() {
 
   // 画面を離れるときは、保留中のオートセーブを送り終えてからキャッシュを更新する
   // （送信の完了を待たずに invalidate すると、古い内容で再取得してしまう）。
+  // 保存できなかったとき（破棄・失敗）はサーバーが古いままなので invalidate しない。
   useEffect(
     () => () => {
       const settled = handleRef.current?.flush() ?? Promise.resolve(true);
-      void settled.finally(() => {
+      void settled.then((ok) => {
+        if (!ok) return;
         queryClient.invalidateQueries({ queryKey: ["memos"] });
         queryClient.invalidateQueries({ queryKey: ["memo", memoId] });
       });

@@ -15,13 +15,19 @@ export type AutosaveStatus = "saved" | "saving" | "error";
 /** 保存時に渡す文脈。ページ離脱時のみ keepalive を使う（64KiB のボディ上限がある） */
 export type { SaveContext };
 
+/** 保存の実行方法。force: 変更が無くても保存する / allowDisabled: 自動保存の対象外でも保存する */
+export interface SaveRequest {
+  force?: boolean;
+  allowDisabled?: boolean;
+}
+
 export interface AutosaveControls<T> {
   status: AutosaveStatus;
   error: Error | null;
   /** 未保存の変更が残っているか（デバウンス待ち・送信中・失敗を含む） */
   hasUnsavedChanges: () => boolean;
-  /** 保留中の保存を今すぐ実行して完了を待つ。force のときは未変更でも保存する */
-  flush: (options?: { force?: boolean }) => Promise<boolean>;
+  /** 保留中の保存を今すぐ実行して完了を待つ */
+  flush: (options?: SaveRequest) => Promise<boolean>;
   /** 直近の失敗を再送する */
   retry: () => void;
   /** 保留中の保存を捨て、実行中の保存の完了を待つ（破棄・削除時） */
@@ -59,7 +65,7 @@ export function useAutosave<T>(
 
   const baselineRef = useRef(key);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const runningRef = useRef<Promise<boolean> | null>(null);
+  const runningRef = useRef<Promise<unknown> | null>(null);
   const discardRef = useRef(false);
 
   const clearTimer = useCallback(() => {
@@ -78,12 +84,15 @@ export function useAutosave<T>(
     }
   }, []);
 
-  const saveNow = useCallback(async (force: boolean): Promise<boolean> => {
-    // 直列化: 実行中の保存があれば終わるまで待ってから次を送る
-    await waitForRunning();
-    if (!force && (!enabledRef.current || keyRef.current === baselineRef.current)) {
-      return true;
-    }
+  const saveNow = useCallback(
+    async ({ force = false, allowDisabled = false }: SaveRequest = {}) => {
+      // 直列化: 実行中の保存があれば終わるまで待ってから次を送る
+      await waitForRunning();
+      // 待っている間に破棄・削除された場合は送らない
+      if (discardRef.current) return false;
+      // 自動保存の対象外（新規で内容が入っていない等）なら何もしない
+      if (!allowDisabled && !enabledRef.current) return true;
+      if (!force && keyRef.current === baselineRef.current) return true;
     const targetKey = keyRef.current;
     const target = valueRef.current;
     setStatus("saving");
@@ -134,12 +143,12 @@ export function useAutosave<T>(
   );
 
   const flush = useCallback(
-    async (options?: { force?: boolean }): Promise<boolean> => {
+    async (options?: SaveRequest): Promise<boolean> => {
       clearTimer();
-      const ok = await saveNow(options?.force ?? false);
+      const ok = await saveNow(options);
       if (!ok) return false;
       // 保存中に変更されていたら、その分も保存してから戻る
-      if (keyRef.current !== baselineRef.current) return saveNow(false);
+      if (keyRef.current !== baselineRef.current) return saveNow();
       return true;
     },
     [clearTimer, saveNow]
@@ -173,7 +182,7 @@ export function useAutosave<T>(
     setStatus("saving");
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
-      void saveNow(false);
+      void saveNow();
     }, delayMs);
     return clearTimer;
   }, [key, enabled, delayMs, saveNow, clearTimer]);
@@ -183,7 +192,7 @@ export function useAutosave<T>(
     if (typeof window === "undefined") return;
     const onOnline = () => {
       if (discardRef.current) return;
-      if (keyRef.current !== baselineRef.current) void saveNow(false);
+      if (keyRef.current !== baselineRef.current) void saveNow();
     };
     window.addEventListener("online", onOnline);
     return () => window.removeEventListener("online", onOnline);
@@ -205,6 +214,8 @@ export function useAutosave<T>(
     const onPageHide = (event: PageTransitionEvent) => {
       // bfcache に入るだけならページは生きているので、保留分はそのまま残す
       if (event.persisted || !pending()) return;
+      // 実行中の保存があれば二重送信しない（新規作成で重複レコードを作らないため）
+      if (runningRef.current) return;
       void sendInBackground(valueRef.current, { keepalive: true });
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
