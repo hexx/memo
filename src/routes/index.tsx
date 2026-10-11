@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   getMemos,
   getLabels,
@@ -28,7 +28,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MemoEditor } from "@/components/MemoEditor";
+import { MemoEditor, type MemoEditorHandle } from "@/components/MemoEditor";
 import { Plus, Search, Pin, Archive, Trash2, MoreVertical, Upload, FileDown } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
@@ -43,6 +43,54 @@ function HomePage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
+  const editorRef = useRef<MemoEditorHandle>(null);
+  // アンマウント時は editorRef が null になっているため、ハンドルを別に保持する
+  const handleRef = useRef<MemoEditorHandle>(null);
+  const setEditorRef = useCallback((handle: MemoEditorHandle | null) => {
+    editorRef.current = handle;
+    if (handle) handleRef.current = handle;
+  }, []);
+
+  // 新規メモのダイアログを閉じる。内容が入った時点で自動保存によりメモが作られているため、
+  // 閉じることは破棄ではなく保存を意味する（ADR 0013）。
+  // 保留分を送ってから閉じ、保存できなかったときだけ破棄の確認を出す。
+  // 保存と onOpenChange の両方から呼ばれうるため、多重実行を防ぐ。
+  const closingRef = useRef(false);
+  const closeCreateDialog = async () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    try {
+      const editor = editorRef.current;
+      if (editor) {
+        const ok = await editor.flush();
+        if (!ok) {
+          if (!confirm("保存できていません。破棄しますか？")) return;
+          await editor.cancel();
+        }
+      }
+      setCreateOpen(false);
+      // 閉じたらハンドルは不要（離脱時の flush に古い内容を使わない）
+      handleRef.current = null;
+      queryClient.invalidateQueries({ queryKey: ["memos"] });
+    } finally {
+      closingRef.current = false;
+    }
+  };
+
+  // 画面（作成ダイアログを含む）を離れるときは、保留分を送り終えてから一覧を更新する
+  // （送信の完了を待たずに invalidate すると、古い内容で再取得してしまう）。
+  // 保存できなかったとき（破棄・失敗）はサーバーが古いままなので invalidate しない。
+  useEffect(
+    () => () => {
+      const handle = handleRef.current;
+      if (!handle) return;
+      void handle.flush().then((ok) => {
+        if (!ok) return;
+        queryClient.invalidateQueries({ queryKey: ["memos"] });
+      });
+    },
+    [queryClient]
+  );
 
   const { data: memos, isLoading } = useQuery({
     queryKey: ["memos", { q: search, label: selectedLabel, diary: "exclude" }],
@@ -182,7 +230,13 @@ function HomePage() {
             </DialogContent>
           </Dialog>
 
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+          <Dialog
+            open={createOpen}
+            onOpenChange={(open) => {
+              if (open) setCreateOpen(true);
+              else void closeCreateDialog();
+            }}
+          >
             <DialogTrigger asChild>
               <Button size="sm">
                 <Plus className="h-4 w-4 mr-1" />
@@ -193,12 +247,7 @@ function HomePage() {
               <DialogHeader>
                 <DialogTitle>新規メモ</DialogTitle>
               </DialogHeader>
-              <MemoEditor
-                onSaved={() => {
-                  setCreateOpen(false);
-                  queryClient.invalidateQueries({ queryKey: ["memos"] });
-                }}
-              />
+              <MemoEditor ref={setEditorRef} onSaved={closeCreateDialog} />
             </DialogContent>
           </Dialog>
         </div>

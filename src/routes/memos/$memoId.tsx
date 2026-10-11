@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getMemo, updateMemo, deleteMemo } from "@/lib/api";
-import { MemoEditor } from "@/components/MemoEditor";
+import { useEffect, useRef, useCallback } from "react";
+import { getMemo, deleteMemo } from "@/lib/api";
+import { MemoEditor, type MemoEditorHandle } from "@/components/MemoEditor";
 import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
@@ -14,24 +15,17 @@ function MemoEditPage() {
   const { memoId } = Route.useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const editorRef = useRef<MemoEditorHandle>(null);
+  // アンマウント時は editorRef が null になっているため、ハンドルを別に保持する
+  const handleRef = useRef<MemoEditorHandle>(null);
+  const setEditorRef = useCallback((handle: MemoEditorHandle | null) => {
+    editorRef.current = handle;
+    if (handle) handleRef.current = handle;
+  }, []);
 
   const { data: memo, isLoading, error } = useQuery({
     queryKey: ["memo", memoId],
     queryFn: () => getMemo(memoId),
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: (data: {
-      title: string;
-      body: string;
-      labelIds?: string[];
-      entryDate?: string;
-    }) => updateMemo(memoId, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["memos"] });
-      queryClient.invalidateQueries({ queryKey: ["memo", memoId] });
-    },
-    onError: (err) => alert(err instanceof Error ? err.message : "保存に失敗しました"),
   });
 
   const deleteMutation = useMutation({
@@ -44,6 +38,29 @@ function MemoEditPage() {
     onError: (err) => alert(err instanceof Error ? err.message : "削除に失敗しました"),
   });
 
+  // 画面を離れるときは、保留中のオートセーブを送り終えてからキャッシュを更新する
+  // （送信の完了を待たずに invalidate すると、古い内容で再取得してしまう）。
+  // 保存できなかったとき（破棄・失敗）はサーバーが古いままなので invalidate しない。
+  useEffect(
+    () => () => {
+      const handle = handleRef.current;
+      if (!handle) return;
+      void handle.flush().then((ok) => {
+        if (!ok) return;
+        queryClient.invalidateQueries({ queryKey: ["memos"] });
+        queryClient.invalidateQueries({ queryKey: ["memo", memoId] });
+      });
+    },
+    [queryClient, memoId]
+  );
+
+  // 保留中のオートセーブを送り終えてから離脱する。失敗したら留まって状態表示に出す。
+  const handleBack = async () => {
+    const ok = await editorRef.current?.flush();
+    if (ok === false) return;
+    navigate({ to: memo?.entryDate ? "/diary" : "/" });
+  };
+
   if (isLoading) return <p className="text-muted-foreground">読み込み中...</p>;
   if (error) return <p className="text-destructive">エラー: {(error as Error).message}</p>;
   if (!memo) return <p className="text-muted-foreground">メモが見つかりません。</p>;
@@ -51,30 +68,29 @@ function MemoEditPage() {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-4">
-        <Button
-          variant="ghost"
-          onClick={() => navigate({ to: memo.entryDate ? "/diary" : "/" })}
-        >
+        <Button variant="ghost" onClick={handleBack}>
           ← 戻る
         </Button>
         <Button
           variant="destructive"
           size="sm"
-          onClick={() => {
-            if (confirm("削除しますか？")) deleteMutation.mutate();
+          onClick={async () => {
+            if (!confirm("削除しますか？")) return;
+            // 削除と競合しないよう、保留中を捨てて実行中の保存の完了を待ってから削除する
+            await editorRef.current?.cancel();
+            deleteMutation.mutate();
           }}
         >
           <Trash2 className="h-4 w-4 mr-1" />
           削除
         </Button>
       </div>
-      {/* 詳細画面の保存後は画面に留まる（連続編集を許容）。ホームへは「← 戻る」で遷移する。
-          削除時のみ onSuccess でホームへ遷移する。保存後コールバックは新規作成経路専用のためここでは渡さない。 */}
+      {/* 詳細画面の保存後は画面に留まる（ADR 0007）。保存は MemoEditor のオートセーブ（ADR 0013）
+          が担い、ここでは onSave / onSaved を渡さない。 */}
       <MemoEditor
+        ref={setEditorRef}
         initialMemo={memo}
         isDiary={memo.entryDate !== null}
-        saving={updateMutation.isPending}
-        onSave={(data) => updateMutation.mutate(data)}
       />
     </div>
   );

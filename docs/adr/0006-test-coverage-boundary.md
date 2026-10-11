@@ -28,6 +28,7 @@ sns-client の同種 ADR（hexx/sns-client docs/adr/0002-test-coverage-boundary.
 - **環境分割**: vitest の既定環境は `node`（サーバ/純粋ロジック）を維持し、UI テストはファイル先頭の `// @vitest-environment jsdom` で指定する
 - **モジュール境界でモック**: UI テストは `vi.mock("@/lib/api")` で API クライアントをモックし、**実サーバ（fetch）には一切接続しない**。フレームワーク（TanStack Router/Query、Radix、TipTap）はモックせず実体を動かし、実メモリルーター（`createMemoryHistory`）経由で描画する — major 破壊の検知が目的のため
 - **jsdom スタブは環境ガード付き**: `tests/setup.ts` のスタブ（`Element.scrollTo` 等）には `typeof Element !== 'undefined'` ガードを付ける（node 環境のテストも setup を通るため）
+- **タイマーと離脱イベント**: オートセーブ（ADR 0013）のデバウンスは `vi.useFakeTimers()` で進める。`visibilitychange` / `pagehide` は jsdom で発火させて離脱時の flush を検証する
 
 ## ADR 0005 との関係
 

@@ -1,10 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
   getDiaries,
   getLabels,
-  createDiary,
   deleteMemo,
   toggleArchive,
   getExportUrl,
@@ -25,7 +24,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MemoEditor } from "@/components/MemoEditor";
+import {
+  MemoEditor,
+  type MemoDraft,
+  type MemoEditorHandle,
+} from "@/components/MemoEditor";
 import { Search, Archive, Trash2, MoreVertical, FileDown, PenLine } from "lucide-react";
 import { todayInTokyo } from "@/lib/diaryDate";
 
@@ -39,6 +42,19 @@ function DiaryPage() {
   const [search, setSearch] = useState("");
   const [selectedLabel, setSelectedLabel] = useState<string | undefined>();
   const [createOpen, setCreateOpen] = useState(false);
+  // 日付が重複したときに「既存の日記を開く」導線を出すための id
+  const [duplicateDiaryId, setDuplicateDiaryId] = useState<string | null>(null);
+  // ダイアログの閉じ処理の多重実行を防ぐ
+  const closingRef = useRef(false);
+  // 作成セッションの世代。古い非同期処理の結果を捨てるために使う
+  const sessionRef = useRef(0);
+  const editorRef = useRef<MemoEditorHandle>(null);
+  // アンマウント時は editorRef が null になっているため、ハンドルを別に保持する
+  const handleRef = useRef<MemoEditorHandle>(null);
+  const setEditorRef = useCallback((handle: MemoEditorHandle | null) => {
+    editorRef.current = handle;
+    if (handle) handleRef.current = handle;
+  }, []);
   const today = todayInTokyo();
 
   const { data: diaries, isLoading } = useQuery({
@@ -66,37 +82,70 @@ function DiaryPage() {
     onError: (err) => alert(err instanceof Error ? err.message : "操作に失敗しました"),
   });
 
-  const createMutation = useMutation({
-    mutationFn: createDiary,
-    onSuccess: () => {
-      invalidateMemos();
-      setCreateOpen(false);
-    },
-    onError: async (err, variables) => {
-      // 保存時に同日の日記が既にあった場合は、作成せず既存の詳細画面を開く
-      const message = err instanceof Error ? err.message : "";
-      if (message.includes("already exists") && variables.entryDate) {
-        try {
-          // アーカイブ済みの日記も日付を占有しているため、 archived も含めて検索する
-          const existing = await getDiaries({
-            date: variables.entryDate,
-            archived: true,
-          });
-          if (existing.length > 0) {
-            setCreateOpen(false);
-            navigate({
-              to: "/memos/$memoId",
-              params: { memoId: existing[0].id },
-            });
-            return;
-          }
-        } catch {
-          // 取得に失敗した場合は通常のエラー表示にフォールバックする
+  // 保存に失敗したときの導線。日付が重複したら既存の日記を提示する（自動遷移はしない）
+  const handleSaveError = useCallback(async (err: Error, draft: MemoDraft) => {
+    if (!err.message.includes("already exists") || !draft.entryDate) return;
+    // 検索の間にダイアログが閉じて開き直された場合、古い結果は捨てる
+    const session = sessionRef.current;
+    try {
+      // アーカイブ済みの日記も日付を占有しているため、archived も含めて検索する
+      const existing = await getDiaries({
+        date: draft.entryDate,
+        archived: true,
+      });
+      if (session !== sessionRef.current) return;
+      setDuplicateDiaryId(existing.length > 0 ? existing[0].id : null);
+    } catch {
+      if (session === sessionRef.current) setDuplicateDiaryId(null);
+    }
+  }, []);
+
+  const closeCreateDialog = async () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    try {
+      const editor = editorRef.current;
+      if (editor) {
+        const ok = await editor.flush();
+        if (!ok) {
+          if (!confirm("保存できていません。破棄しますか？")) return;
+          await editor.cancel();
         }
       }
-      alert(message || "保存に失敗しました");
+      setCreateOpen(false);
+      setDuplicateDiaryId(null);
+      // 閉じたらハンドルは不要（離脱時の flush に古い内容を使わない）
+      handleRef.current = null;
+      invalidateMemos();
+    } finally {
+      closingRef.current = false;
+    }
+  };
+
+  const openDuplicateDiary = async () => {
+    if (!duplicateDiaryId) return;
+    sessionRef.current += 1;
+    await editorRef.current?.cancel();
+    setCreateOpen(false);
+    setDuplicateDiaryId(null);
+    handleRef.current = null;
+    navigate({ to: "/memos/$memoId", params: { memoId: duplicateDiaryId } });
+  };
+
+  // 画面（作成ダイアログを含む）を離れるときは、保留分を送り終えてから一覧を更新する
+  // （送信の完了を待たずに invalidate すると、古い内容で再取得してしまう）。
+  // 保存できなかったとき（破棄・失敗）はサーバーが古いままなので invalidate しない。
+  useEffect(
+    () => () => {
+      const handle = handleRef.current;
+      if (!handle) return;
+      void handle.flush().then((ok) => {
+        if (!ok) return;
+        queryClient.invalidateQueries({ queryKey: ["memos"] });
+      });
     },
-  });
+    [queryClient]
+  );
 
   // 「日記を書く」: 今日の日記が既にあればそれを開き、なければ作成ダイアログを開く
   const handleWrite = async () => {
@@ -111,6 +160,8 @@ function DiaryPage() {
       alert(err instanceof Error ? err.message : "操作に失敗しました");
       return;
     }
+    setDuplicateDiaryId(null);
+    sessionRef.current += 1;
     setCreateOpen(true);
   };
 
@@ -160,17 +211,36 @@ function DiaryPage() {
         </div>
       </div>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          if (open) setCreateOpen(true);
+          else void closeCreateDialog();
+        }}
+      >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>日記を書く</DialogTitle>
           </DialogHeader>
           <MemoEditor
+            ref={setEditorRef}
             isDiary
             initialEntryDate={today}
-            saving={createMutation.isPending}
-            onSave={(data) => createMutation.mutate(data)}
+            onSaved={closeCreateDialog}
+            onSaveError={handleSaveError}
           />
+          {duplicateDiaryId && (
+            <p className="text-sm text-muted-foreground">
+              この日付の日記はすでにあります。{" "}
+              <button
+                type="button"
+                className="underline underline-offset-2"
+                onClick={openDuplicateDiary}
+              >
+                既存の日記を開く
+              </button>
+            </p>
+          )}
         </DialogContent>
       </Dialog>
 

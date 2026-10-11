@@ -56,6 +56,15 @@ if (typeof Range !== "undefined") {
   Range.prototype.getBoundingClientRect = (): DOMRect => emptyRect;
 }
 
+if (typeof Document !== "undefined") {
+  // jsdom は document.elementFromPoint を実装していない。
+  // TipTap (ProseMirror) がエディタへの mousedown で座標解決に使うため、
+  // null（＝座標が取れない）を返すスタブを入れる。
+  if (typeof Document.prototype.elementFromPoint !== "function") {
+    Document.prototype.elementFromPoint = (): Element | null => null;
+  }
+}
+
 // Radix 由来で必要になる場合があるオブザーバーの no-op 実装
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {

@@ -157,7 +157,7 @@ describe("日記を書く", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("保存時に 409 なら同日の既存日記を開く", async () => {
+  it("保存時に 409 なら自動遷移せず、既存の日記を開く導線を出す", async () => {
     const user = userEvent.setup();
     const today = todayInTokyo();
     let created = false;
@@ -188,14 +188,45 @@ describe("日記を書く", () => {
     const saveButtons = within(dialog).getAllByRole("button", { name: "作成" });
     await user.click(saveButtons[saveButtons.length - 1]);
 
-    await waitFor(() =>
-      expect(router.state.location.pathname).toBe("/memos/existing")
-    );
+    // オートセーブ経路では勝手に遷移しない（書きかけを保持してユーザーに委ねる）
+    const link = await within(dialog).findByRole("button", {
+      name: "既存の日記を開く",
+    });
+    expect(router.state.location.pathname).toBe("/diary");
     // アーカイブ済みの日記も日付を占有しているため、復旧検索は archived を含める
     expect(mockedGetDiaries).toHaveBeenCalledWith({
       date: today,
       archived: true,
     });
+
+    // 導線を押すと既存の日記の詳細を開く
+    await user.click(link);
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe("/memos/existing")
+    );
+  });
+
+  it("初回保存が未成功のまま閉じようとすると確認を出す", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    mockedCreateDiary.mockRejectedValue(new Error("network error"));
+    renderApp("/diary");
+    await screen.findByText(/日記はまだありません/);
+    await user.click(screen.getByRole("button", { name: "日記を書く" }));
+
+    const dialog = await screen.findByRole("dialog");
+    // 日記の既定タイトル（日付）は内容とみなさないので、タイトルを編集して保存を起こす
+    const titleInput = within(dialog).getByPlaceholderText("タイトル（1行目）");
+    await user.clear(titleInput);
+    await user.type(titleInput, "旅行");
+    await waitFor(() => expect(mockedCreateDiary).toHaveBeenCalled(), {
+      timeout: 3000,
+    });
+
+    await user.keyboard("{Escape}");
+
+    expect(confirmSpy).toHaveBeenCalledWith("保存できていません。破棄しますか？");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });
 
