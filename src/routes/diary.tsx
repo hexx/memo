@@ -46,6 +46,8 @@ function DiaryPage() {
   const [duplicateDiaryId, setDuplicateDiaryId] = useState<string | null>(null);
   // ダイアログの閉じ処理の多重実行を防ぐ
   const closingRef = useRef(false);
+  // 作成セッションの世代。古い非同期処理の結果を捨てるために使う
+  const sessionRef = useRef(0);
   const editorRef = useRef<MemoEditorHandle>(null);
   // アンマウント時は editorRef が null になっているため、ハンドルを別に保持する
   const handleRef = useRef<MemoEditorHandle>(null);
@@ -83,15 +85,18 @@ function DiaryPage() {
   // 保存に失敗したときの導線。日付が重複したら既存の日記を提示する（自動遷移はしない）
   const handleSaveError = useCallback(async (err: Error, draft: MemoDraft) => {
     if (!err.message.includes("already exists") || !draft.entryDate) return;
+    // 検索の間にダイアログが閉じて開き直された場合、古い結果は捨てる
+    const session = sessionRef.current;
     try {
       // アーカイブ済みの日記も日付を占有しているため、archived も含めて検索する
       const existing = await getDiaries({
         date: draft.entryDate,
         archived: true,
       });
+      if (session !== sessionRef.current) return;
       setDuplicateDiaryId(existing.length > 0 ? existing[0].id : null);
     } catch {
-      setDuplicateDiaryId(null);
+      if (session === sessionRef.current) setDuplicateDiaryId(null);
     }
   }, []);
 
@@ -109,6 +114,8 @@ function DiaryPage() {
       }
       setCreateOpen(false);
       setDuplicateDiaryId(null);
+      // 閉じたらハンドルは不要（離脱時の flush に古い内容を使わない）
+      handleRef.current = null;
       invalidateMemos();
     } finally {
       closingRef.current = false;
@@ -117,9 +124,11 @@ function DiaryPage() {
 
   const openDuplicateDiary = async () => {
     if (!duplicateDiaryId) return;
+    sessionRef.current += 1;
     await editorRef.current?.cancel();
     setCreateOpen(false);
     setDuplicateDiaryId(null);
+    handleRef.current = null;
     navigate({ to: "/memos/$memoId", params: { memoId: duplicateDiaryId } });
   };
 
@@ -128,8 +137,9 @@ function DiaryPage() {
   // 保存できなかったとき（破棄・失敗）はサーバーが古いままなので invalidate しない。
   useEffect(
     () => () => {
-      const settled = handleRef.current?.flush() ?? Promise.resolve(true);
-      void settled.then((ok) => {
+      const handle = handleRef.current;
+      if (!handle) return;
+      void handle.flush().then((ok) => {
         if (!ok) return;
         queryClient.invalidateQueries({ queryKey: ["memos"] });
       });
@@ -151,6 +161,7 @@ function DiaryPage() {
       return;
     }
     setDuplicateDiaryId(null);
+    sessionRef.current += 1;
     setCreateOpen(true);
   };
 

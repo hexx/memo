@@ -441,6 +441,7 @@ export function MemoEditor({
         {(persisted || autosave.status !== "saved") && (
           <AutosaveIndicator
             status={autosave.status}
+            error={autosave.error}
             onRetry={autosave.retry}
           />
         )}
@@ -452,12 +453,14 @@ export function MemoEditor({
   );
 }
 
-/** 保存状態の表示（ADR 0013）。失敗のときは再試行できる */
+/** 保存状態の表示（ADR 0013）。失敗のときは再試行でき、理由を tooltip で見せる */
 function AutosaveIndicator({
   status,
+  error,
   onRetry,
 }: {
   status: AutosaveStatus;
+  error: Error | null;
   onRetry: () => void;
 }) {
   if (status === "error") {
@@ -465,6 +468,7 @@ function AutosaveIndicator({
       <button
         type="button"
         onClick={onRetry}
+        title={error?.message}
         className="text-sm text-destructive underline underline-offset-2"
       >
         保存に失敗（再試行）

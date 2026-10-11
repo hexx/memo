@@ -45,6 +45,10 @@ export interface UseAutosaveOptions {
 
 const toKey = (value: unknown): string => JSON.stringify(value);
 
+// keepalive リクエストのボディ上限（バイト）。超えるメモは keepalive を使わない
+// （離脱時の最後の flush は非保証。ADR 0013 を参照）
+const KEEPALIVE_BODY_LIMIT_BYTES = 64 * 1024;
+
 export function useAutosave<T>(
   value: T,
   save: (value: T, context?: SaveContext) => Promise<void>,
@@ -66,6 +70,9 @@ export function useAutosave<T>(
   const baselineRef = useRef(key);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runningRef = useRef<Promise<unknown> | null>(null);
+  // 予約済み（キュー待ち or 実行中）の保存数。離脱時の投げっぱなし送信と競合させない
+  const pendingRef = useRef(0);
+  const queueRef = useRef<Promise<unknown>>(Promise.resolve());
   const discardRef = useRef(false);
 
   const clearTimer = useCallback(() => {
@@ -85,42 +92,59 @@ export function useAutosave<T>(
   }, []);
 
   const saveNow = useCallback(
-    async ({ force = false, allowDisabled = false }: SaveRequest = {}) => {
-      // 直列化: 実行中の保存があれば終わるまで待ってから次を送る
-      await waitForRunning();
-      // 待っている間に破棄・削除された場合は送らない
-      if (discardRef.current) return false;
-      // 自動保存の対象外（新規で内容が入っていない等）なら何もしない
-      if (!allowDisabled && !enabledRef.current) return true;
-      if (!force && keyRef.current === baselineRef.current) return true;
-    const targetKey = keyRef.current;
-    const target = valueRef.current;
-    setStatus("saving");
-    setError(null);
-    const promise = (async () => {
-      try {
-        await saveRef.current(target);
-        baselineRef.current = targetKey;
-        return true;
-      } catch (err) {
-        setError(err instanceof Error ? err : new Error(String(err)));
-        return false;
-      }
-    })();
-    runningRef.current = promise;
-    let ok: boolean;
-    try {
-      ok = await promise;
-    } finally {
-      runningRef.current = null;
-    }
-    if (ok) {
-      setStatus(keyRef.current === baselineRef.current ? "saved" : "saving");
-    } else {
-      setStatus("error");
-    }
-    return ok;
-  }, [waitForRunning]);
+    (request: SaveRequest = {}): Promise<boolean> => {
+      pendingRef.current += 1;
+      const task = async (): Promise<boolean> => {
+        try {
+          // 実行中の投げっぱなし送信（離脱時）を待つ
+          await waitForRunning();
+          // 待っている間に破棄・削除された場合は送らない
+          if (discardRef.current) return false;
+          const { force = false, allowDisabled = false } = request;
+          // 自動保存の対象外（新規で内容が入っていない等）なら何もしない
+          if (!allowDisabled && !enabledRef.current) return true;
+          if (!force && keyRef.current === baselineRef.current) return true;
+          const targetKey = keyRef.current;
+          const target = valueRef.current;
+          setStatus("saving");
+          setError(null);
+          const promise = (async () => {
+            try {
+              await saveRef.current(target);
+              baselineRef.current = targetKey;
+              return true;
+            } catch (err) {
+              setError(err instanceof Error ? err : new Error(String(err)));
+              return false;
+            }
+          })();
+          runningRef.current = promise;
+          let ok: boolean;
+          try {
+            ok = await promise;
+          } finally {
+            runningRef.current = null;
+          }
+          if (ok) {
+            setStatus(keyRef.current === baselineRef.current ? "saved" : "saving");
+          } else {
+            setStatus("error");
+          }
+          return ok;
+        } finally {
+          pendingRef.current -= 1;
+        }
+      };
+      // 保存の開始をキューで直列化する（同じタイミングの複数呼び出しで二重送信しない）
+      const next = queueRef.current.then(task, task);
+      queueRef.current = next.then(
+        () => undefined,
+        () => undefined
+      );
+      return next;
+    },
+    [waitForRunning]
+  );
 
   // 直列化の輪の外から投げっぱなしで送る（離脱時）。成功したときだけベースラインを進め、
   // 失敗しても dirty を残す（ページが生き残っていれば次の契機で再送できる）
@@ -214,9 +238,13 @@ export function useAutosave<T>(
     const onPageHide = (event: PageTransitionEvent) => {
       // bfcache に入るだけならページは生きているので、保留分はそのまま残す
       if (event.persisted || !pending()) return;
-      // 実行中の保存があれば二重送信しない（新規作成で重複レコードを作らないため）
-      if (runningRef.current) return;
-      void sendInBackground(valueRef.current, { keepalive: true });
+      // 予約済み・実行中の保存があれば二重送信しない（新規作成で重複レコードを作らないため）
+      if (runningRef.current || pendingRef.current > 0) return;
+      const value = valueRef.current;
+      // keepalive はボディ 64KiB までしか送れないため、大きいメモは通常の fetch にする
+      const tooLarge =
+        new Blob([keyRef.current]).size > KEEPALIVE_BODY_LIMIT_BYTES;
+      void sendInBackground(value, tooLarge ? undefined : { keepalive: true });
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("pagehide", onPageHide);
@@ -232,7 +260,7 @@ export function useAutosave<T>(
     () => () => {
       if (discardRef.current || !enabledRef.current) return;
       if (keyRef.current === baselineRef.current) return;
-      if (runningRef.current) return;
+      if (runningRef.current || pendingRef.current > 0) return;
       void sendInBackground(valueRef.current);
     },
     [sendInBackground]

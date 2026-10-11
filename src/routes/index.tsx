@@ -69,6 +69,8 @@ function HomePage() {
         }
       }
       setCreateOpen(false);
+      // 閉じたらハンドルは不要（離脱時の flush に古い内容を使わない）
+      handleRef.current = null;
       queryClient.invalidateQueries({ queryKey: ["memos"] });
     } finally {
       closingRef.current = false;
@@ -80,8 +82,9 @@ function HomePage() {
   // 保存できなかったとき（破棄・失敗）はサーバーが古いままなので invalidate しない。
   useEffect(
     () => () => {
-      const settled = handleRef.current?.flush() ?? Promise.resolve(true);
-      void settled.then((ok) => {
+      const handle = handleRef.current;
+      if (!handle) return;
+      void handle.flush().then((ok) => {
         if (!ok) return;
         queryClient.invalidateQueries({ queryKey: ["memos"] });
       });

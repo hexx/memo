@@ -318,6 +318,50 @@ describe("離脱時", () => {
     });
   });
 
+  it("保存が予約されている間は pagehide でも送らない", async () => {
+    const resolvers: Array<() => void> = [];
+    const save = vi.fn<SaveFn>(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+    const { result, rerender } = setup(save);
+
+    rerender({ value: { v: 2 } });
+    let flushPromise: Promise<boolean> = Promise.resolve(true);
+    await act(async () => {
+      // 同一タスクで flush と pagehide が重なっても二重送信しない
+      flushPromise = result.current.flush();
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolvers[0]!();
+      await flushPromise;
+    });
+  });
+
+  it("大きいメモでは pagehide で keepalive を使わない", async () => {
+    const big = { body: "x".repeat(70 * 1024) };
+    const save = vi
+      .fn<(value: typeof big, context?: { keepalive?: boolean }) => Promise<void>>()
+      .mockResolvedValue(undefined);
+    const { rerender } = renderHook(
+      ({ value }: { value: typeof big }) =>
+        useAutosave(value, save, { delayMs: 1000 }),
+      { initialProps: { value: { body: "" } } }
+    );
+
+    rerender({ value: big });
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    expect(save).toHaveBeenCalledWith(big, undefined);
+  });
+
   it("アンマウント時に保留分を送る", async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const { rerender, unmount } = setup(save);
