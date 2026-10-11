@@ -51,8 +51,8 @@ export interface MemoDraft {
 export interface MemoEditorHandle {
   /** 保留中の変更を保存し、完了を待つ。失敗したら false */
   flush: (options?: { force?: boolean }) => Promise<boolean>;
-  /** 保留中の保存を捨てる（破棄・削除時） */
-  cancel: () => void;
+  /** 保留中の保存を捨て、実行中の保存の完了を待つ（破棄・削除時） */
+  cancel: () => Promise<void>;
 }
 
 interface MemoEditorProps {

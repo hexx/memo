@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { getMemo, deleteMemo } from "@/lib/api";
 import { MemoEditor, type MemoEditorHandle } from "@/components/MemoEditor";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,12 @@ function MemoEditPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const editorRef = useRef<MemoEditorHandle>(null);
+  // アンマウント時は editorRef が null になっているため、ハンドルを別に保持する
+  const handleRef = useRef<MemoEditorHandle>(null);
+  const setEditorRef = useCallback((handle: MemoEditorHandle | null) => {
+    editorRef.current = handle;
+    if (handle) handleRef.current = handle;
+  }, []);
 
   const { data: memo, isLoading, error } = useQuery({
     queryKey: ["memo", memoId],
@@ -32,12 +38,15 @@ function MemoEditPage() {
     onError: (err) => alert(err instanceof Error ? err.message : "削除に失敗しました"),
   });
 
-  // 画面を離れるときに一覧・詳細のキャッシュを更新する（staleTime があるため
-  // 再マウントだけでは新しい内容にならない）。保存のたびではなく離脱時に 1 回だけ行う。
+  // 画面を離れるときは、保留中のオートセーブを送り終えてからキャッシュを更新する
+  // （送信の完了を待たずに invalidate すると、古い内容で再取得してしまう）。
   useEffect(
     () => () => {
-      queryClient.invalidateQueries({ queryKey: ["memos"] });
-      queryClient.invalidateQueries({ queryKey: ["memo", memoId] });
+      const settled = handleRef.current?.flush() ?? Promise.resolve(true);
+      void settled.finally(() => {
+        queryClient.invalidateQueries({ queryKey: ["memos"] });
+        queryClient.invalidateQueries({ queryKey: ["memo", memoId] });
+      });
     },
     [queryClient, memoId]
   );
@@ -62,12 +71,11 @@ function MemoEditPage() {
         <Button
           variant="destructive"
           size="sm"
-          onClick={() => {
-            if (confirm("削除しますか？")) {
-              // 削除と競合しないよう、保留中・実行中のオートセーブを止める
-              editorRef.current?.cancel();
-              deleteMutation.mutate();
-            }
+          onClick={async () => {
+            if (!confirm("削除しますか？")) return;
+            // 削除と競合しないよう、保留中を捨てて実行中の保存の完了を待ってから削除する
+            await editorRef.current?.cancel();
+            deleteMutation.mutate();
           }}
         >
           <Trash2 className="h-4 w-4 mr-1" />
@@ -77,7 +85,7 @@ function MemoEditPage() {
       {/* 詳細画面の保存後は画面に留まる（ADR 0007）。保存は MemoEditor のオートセーブ（ADR 0013）
           が担い、ここでは onSave / onSaved を渡さない。 */}
       <MemoEditor
-        ref={editorRef}
+        ref={setEditorRef}
         initialMemo={memo}
         isDiary={memo.entryDate !== null}
       />

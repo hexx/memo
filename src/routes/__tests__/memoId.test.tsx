@@ -3,7 +3,7 @@
 // メモ詳細/編集画面（routes/memos/$memoId.tsx）の配線契約（ADR 0006 / ADR 0007）:
 // パラメータ取得・MemoEditor 描画・保存（updateMemo→画面に留まる）・削除（ホーム遷移）・エラー表示
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "./test-utils";
 import {
@@ -127,6 +127,38 @@ describe("メモ詳細画面", () => {
 
     await screen.findByRole("button", { name: "保存に失敗（再試行）" });
     expect(router.state.location.pathname).toBe("/memos/abc");
+  });
+
+  it("画面を離れるときは、保留中の保存が終わってからキャッシュを更新する", async () => {
+    let resolveSave: (() => void) | undefined;
+    mockedUpdateMemo.mockImplementation(
+      () =>
+        new Promise<{ ok: boolean }>((resolve) => {
+          resolveSave = () => resolve({ ok: true });
+        })
+    );
+    const { router, queryClient } = renderApp("/memos/abc");
+    await screen.findByDisplayValue("Detail Memo");
+
+    fireEvent.change(screen.getByDisplayValue("Detail Memo"), {
+      target: { value: "Renamed" },
+    });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    // 戻るボタンではなくブラウザの戻る相当（アンマウント経由）で離脱する
+    await act(async () => {
+      await router.navigate({ to: "/" });
+    });
+
+    expect(mockedUpdateMemo).toHaveBeenCalled();
+    // 保存が終わるまでは invalidate しない（古い内容で再取得しないため）
+    expect(invalidateSpy).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSave?.();
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["memos"] });
   });
 
   it("確認付き削除で deleteMemo が呼ばれ、ホームへ遷移する", async () => {

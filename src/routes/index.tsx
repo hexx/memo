@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   getMemos,
   getLabels,
@@ -44,6 +44,12 @@ function HomePage() {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const editorRef = useRef<MemoEditorHandle>(null);
+  // アンマウント時は editorRef が null になっているため、ハンドルを別に保持する
+  const handleRef = useRef<MemoEditorHandle>(null);
+  const setEditorRef = useCallback((handle: MemoEditorHandle | null) => {
+    editorRef.current = handle;
+    if (handle) handleRef.current = handle;
+  }, []);
 
   // 新規メモのダイアログを閉じる。内容が入った時点で自動保存によりメモが作られているため、
   // 閉じることは破棄ではなく保存を意味する（ADR 0013）。
@@ -54,17 +60,21 @@ function HomePage() {
       const ok = await editor.flush();
       if (!ok) {
         if (!confirm("保存できていません。破棄しますか？")) return;
-        editor.cancel();
+        await editor.cancel();
       }
     }
     setCreateOpen(false);
     queryClient.invalidateQueries({ queryKey: ["memos"] });
   };
 
-  // 画面（作成ダイアログを含む）を離れるときに一覧を更新する
+  // 画面（作成ダイアログを含む）を離れるときは、保留分を送り終えてから一覧を更新する
+  // （送信の完了を待たずに invalidate すると、古い内容で再取得してしまう）。
   useEffect(
     () => () => {
-      queryClient.invalidateQueries({ queryKey: ["memos"] });
+      const settled = handleRef.current?.flush() ?? Promise.resolve(true);
+      void settled.finally(() => {
+        queryClient.invalidateQueries({ queryKey: ["memos"] });
+      });
     },
     [queryClient]
   );
@@ -224,7 +234,7 @@ function HomePage() {
               <DialogHeader>
                 <DialogTitle>新規メモ</DialogTitle>
               </DialogHeader>
-              <MemoEditor ref={editorRef} onSaved={closeCreateDialog} />
+              <MemoEditor ref={setEditorRef} onSaved={closeCreateDialog} />
             </DialogContent>
           </Dialog>
         </div>

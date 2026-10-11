@@ -273,6 +273,27 @@ describe("離脱時", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
+  it("pagehide の保存が失敗したら dirty を残し、後で再送する", async () => {
+    const save = vi
+      .fn<SaveFn>()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue(undefined);
+    const { rerender } = setup(save);
+
+    rerender({ value: { v: 2 } });
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    await flushMicrotasks();
+    expect(save).toHaveBeenCalledTimes(1);
+
+    // ページが生き残っていれば、オンライン復帰などで再送される
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+    });
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+
   it("アンマウント時に保留分を送る", async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const { rerender, unmount } = setup(save);
@@ -281,19 +302,50 @@ describe("離脱時", () => {
     unmount();
 
     // SPA の画面遷移なので通常の fetch（keepalive はページ破棄時にだけ使う）
-    expect(save).toHaveBeenCalledWith({ v: 2 });
+    expect(save).toHaveBeenCalledWith({ v: 2 }, undefined);
   });
 
   it("cancel したらアンマウント時にも送らない", async () => {
-    const save = vi.fn().mockResolvedValue(undefined);
+    const save = vi.fn<SaveFn>().mockResolvedValue(undefined);
     const { result, rerender, unmount } = setup(save);
 
     rerender({ value: { v: 2 } });
-    act(() => result.current.cancel());
+    await act(async () => {
+      await result.current.cancel();
+    });
     await advance(5000);
     unmount();
 
     expect(save).not.toHaveBeenCalled();
+  });
+
+  it("cancel は実行中の保存の完了を待つ", async () => {
+    const resolvers: Array<() => void> = [];
+    const save = vi.fn<SaveFn>(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+    const { result, rerender } = setup(save);
+
+    rerender({ value: { v: 2 } });
+    await advance(1000);
+    expect(save).toHaveBeenCalledTimes(1);
+
+    let cancelled = false;
+    const pending = act(async () => {
+      await result.current.cancel();
+      cancelled = true;
+    });
+    await flushMicrotasks();
+    expect(cancelled).toBe(false);
+
+    await act(async () => {
+      resolvers[0]!();
+    });
+    await pending;
+    expect(cancelled).toBe(true);
   });
 });
 

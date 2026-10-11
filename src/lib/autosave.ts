@@ -24,8 +24,8 @@ export interface AutosaveControls<T> {
   flush: (options?: { force?: boolean }) => Promise<boolean>;
   /** 直近の失敗を再送する */
   retry: () => void;
-  /** 保留中の保存を捨てる（破棄・削除時） */
-  cancel: () => void;
+  /** 保留中の保存を捨て、実行中の保存の完了を待つ（破棄・削除時） */
+  cancel: () => Promise<void>;
   /** ベースラインを指定の内容に合わせる（別メモへの切り替え時） */
   reset: (value: T) => void;
 }
@@ -69,9 +69,18 @@ export function useAutosave<T>(
     }
   }, []);
 
+  // 実行中の保存の完了を待つ。解決済みの Promise が残っていても無限ループしない
+  const waitForRunning = useCallback(async () => {
+    while (runningRef.current) {
+      const running = runningRef.current;
+      await running;
+      if (runningRef.current === running) runningRef.current = null;
+    }
+  }, []);
+
   const saveNow = useCallback(async (force: boolean): Promise<boolean> => {
     // 直列化: 実行中の保存があれば終わるまで待ってから次を送る
-    while (runningRef.current) await runningRef.current;
+    await waitForRunning();
     if (!force && (!enabledRef.current || keyRef.current === baselineRef.current)) {
       return true;
     }
@@ -102,7 +111,27 @@ export function useAutosave<T>(
       setStatus("error");
     }
     return ok;
-  }, []);
+  }, [waitForRunning]);
+
+  // 直列化の輪の外から投げっぱなしで送る（離脱時）。成功したときだけベースラインを進め、
+  // 失敗しても dirty を残す（ページが生き残っていれば次の契機で再送できる）
+  const sendInBackground = useCallback(
+    (value: T, context?: SaveContext): Promise<void> => {
+      const sentKey = toKey(value);
+      const promise = saveRef.current(value, context)
+        .then(() => {
+          baselineRef.current = sentKey;
+        })
+        .catch(() => {});
+      // 直列化の輪に載せて、あとから flush されたときに待てるようにする
+      runningRef.current = promise;
+      void promise.then(() => {
+        if (runningRef.current === promise) runningRef.current = null;
+      });
+      return promise;
+    },
+    []
+  );
 
   const flush = useCallback(
     async (options?: { force?: boolean }): Promise<boolean> => {
@@ -120,10 +149,12 @@ export function useAutosave<T>(
     void flush();
   }, [flush]);
 
-  const cancel = useCallback(() => {
+  const cancel = useCallback(async () => {
     discardRef.current = true;
     clearTimer();
-  }, [clearTimer]);
+    // 実行中の保存が終わるまで待つ（削除との順序を確定させる）
+    await waitForRunning();
+  }, [clearTimer, waitForRunning]);
 
   const reset = useCallback(
     (next: T) => {
@@ -174,8 +205,7 @@ export function useAutosave<T>(
     const onPageHide = (event: PageTransitionEvent) => {
       // bfcache に入るだけならページは生きているので、保留分はそのまま残す
       if (event.persisted || !pending()) return;
-      baselineRef.current = keyRef.current;
-      void saveRef.current(valueRef.current, { keepalive: true }).catch(() => {});
+      void sendInBackground(valueRef.current, { keepalive: true });
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("pagehide", onPageHide);
@@ -183,16 +213,18 @@ export function useAutosave<T>(
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("pagehide", onPageHide);
     };
-  }, [flush]);
+  }, [flush, sendInBackground]);
 
-  // SPA の画面遷移でも、保留分を投げっぱなしで送る（ページは生きているので通常の fetch）
+  // SPA の画面遷移でも、保留分を投げっぱなしで送る（ページは生きているので通常の fetch）。
+  // すでに実行中の保存があれば二重送信しない
   useEffect(
     () => () => {
       if (discardRef.current || !enabledRef.current) return;
       if (keyRef.current === baselineRef.current) return;
-      void saveRef.current(valueRef.current).catch(() => {});
+      if (runningRef.current) return;
+      void sendInBackground(valueRef.current);
     },
-    []
+    [sendInBackground]
   );
 
   const hasUnsavedChanges = useCallback(

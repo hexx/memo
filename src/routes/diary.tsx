@@ -45,6 +45,12 @@ function DiaryPage() {
   // 日付が重複したときに「既存の日記を開く」導線を出すための id
   const [duplicateDiaryId, setDuplicateDiaryId] = useState<string | null>(null);
   const editorRef = useRef<MemoEditorHandle>(null);
+  // アンマウント時は editorRef が null になっているため、ハンドルを別に保持する
+  const handleRef = useRef<MemoEditorHandle>(null);
+  const setEditorRef = useCallback((handle: MemoEditorHandle | null) => {
+    editorRef.current = handle;
+    if (handle) handleRef.current = handle;
+  }, []);
   const today = todayInTokyo();
 
   const { data: diaries, isLoading } = useQuery({
@@ -93,7 +99,7 @@ function DiaryPage() {
       const ok = await editor.flush();
       if (!ok) {
         if (!confirm("保存できていません。破棄しますか？")) return;
-        editor.cancel();
+        await editor.cancel();
       }
     }
     setCreateOpen(false);
@@ -103,16 +109,20 @@ function DiaryPage() {
 
   const openDuplicateDiary = () => {
     if (!duplicateDiaryId) return;
-    editorRef.current?.cancel();
+    void editorRef.current?.cancel();
     setCreateOpen(false);
     setDuplicateDiaryId(null);
     navigate({ to: "/memos/$memoId", params: { memoId: duplicateDiaryId } });
   };
 
-  // 画面（作成ダイアログを含む）を離れるときに一覧を更新する
+  // 画面（作成ダイアログを含む）を離れるときは、保留分を送り終えてから一覧を更新する
+  // （送信の完了を待たずに invalidate すると、古い内容で再取得してしまう）。
   useEffect(
     () => () => {
-      queryClient.invalidateQueries({ queryKey: ["memos"] });
+      const settled = handleRef.current?.flush() ?? Promise.resolve(true);
+      void settled.finally(() => {
+        queryClient.invalidateQueries({ queryKey: ["memos"] });
+      });
     },
     [queryClient]
   );
@@ -192,7 +202,7 @@ function DiaryPage() {
             <DialogTitle>日記を書く</DialogTitle>
           </DialogHeader>
           <MemoEditor
-            ref={editorRef}
+            ref={setEditorRef}
             isDiary
             initialEntryDate={today}
             onSaved={closeCreateDialog}

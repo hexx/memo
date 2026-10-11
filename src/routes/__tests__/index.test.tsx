@@ -3,7 +3,7 @@
 // メイン画面（routes/index.tsx）の配線契約（ADR 0006）:
 // クエリ描画・検索・ラベルフィルタ・カード操作（ピン/削除）・インポートダイアログ・作成ダイアログ
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "./test-utils";
 import {
@@ -282,5 +282,43 @@ describe("作成ダイアログ", () => {
 
     expect(confirmSpy).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("ダイアログを開いたまま画面を離れるときは、保存が終わってから一覧を更新する", async () => {
+    const user = userEvent.setup();
+    let resolveSave: (() => void) | undefined;
+    mockedCreateMemo.mockImplementation(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveSave = () => resolve({ id: "new-id" });
+        })
+    );
+    const { router, queryClient } = renderApp("/");
+    await screen.findByText(/メモがありません/);
+
+    await user.click(screen.getByRole("button", { name: "新規メモ" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByPlaceholderText("タイトル（1行目）"),
+      "draft"
+    );
+    // オートセーブの 1 秒後に保存が走るのを待つ（未完了のまま画面を離れる）
+    await waitFor(() => expect(mockedCreateMemo).toHaveBeenCalled(), {
+      timeout: 3000,
+    });
+
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    await act(async () => {
+      await router.navigate({ to: "/labels" });
+    });
+
+    // 保存が終わるまでは invalidate しない
+    expect(invalidateSpy).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSave?.();
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["memos"] });
   });
 });
